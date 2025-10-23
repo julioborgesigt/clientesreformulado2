@@ -1,0 +1,112 @@
+/* Reset */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f4f4;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+}
+
+/* Wrapper e Container */
+.auth-wrapper {
+    width: 100%;
+    max-width: 400px;
+}
+
+.auth-container {
+    position: relative;
+    width: 100%;
+    height: 500px;
+    overflow: hidden;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    background-color: white;
+}
+
+.form-container {
+    position: absolute;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    padding: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.6s ease-in-out;
+}
+
+/* Posição Inicial */
+.login-container {
+    transform: translateX(0);
+}
+
+.register-container {
+    transform: translateX(100%);
+}
+
+/* Ativa o Container de Cadastro */
+.auth-container.active .login-container {
+    transform: translateX(-100%);
+}
+
+.auth-container.active .register-container {
+    transform: translateX(0);
+}
+
+/* Formulários */
+form h2 {
+    margin-bottom: 20px;
+    color: #333;
+}
+
+form input {
+    width: 100%;
+    padding: 12px 15px;
+    margin: 10px 0;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    font-size: 14px;
+}
+
+form button {
+    width: 100%;
+    padding: 12px 15px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+}
+
+form button:hover {
+    background-color: #0056b3;
+}
+
+form p {
+    margin-top: 15px;
+    font-size: 14px;
+    color: #555;
+}
+
+form p .toggle-form {
+    color: #007bff;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .auth-wrapper {
+        padding: 10px;
+    }
+}
