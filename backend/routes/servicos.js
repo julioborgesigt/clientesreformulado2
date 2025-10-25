@@ -36,6 +36,30 @@ router.post('/', (req, res) => {
     });
 });
 
-// (Opcional: Adicionar rotas DELETE /:id e PUT /:id no futuro, se necessário)
+// --- NOVA ROTA DELETE ---
+router.delete('/:id', (req, res) => {
+    const serviceId = req.params.id;
+
+    if (!serviceId || isNaN(parseInt(serviceId))) {
+        return res.status(400).json({ error: 'ID do serviço inválido.' });
+    }
+
+    // Opcional: Verificar se o serviço está sendo usado por algum cliente antes de deletar?
+    // Se sim, você adicionaria uma query SELECT aqui para verificar na tabela 'clientes'.
+    // Se estiver em uso, retorne um erro (ex: 409 Conflict) impedindo a exclusão.
+    // Ex: db.query('SELECT COUNT(*) as count FROM clientes WHERE servico = (SELECT nome FROM servicos WHERE id = ?)', [serviceId], (err, results) => { ... });
+
+    db.query('DELETE FROM servicos WHERE id = ?', [serviceId], (err, result) => {
+        if (err) {
+            console.error('Erro ao excluir serviço:', err);
+            return res.status(500).json({ error: 'Erro ao excluir serviço.' });
+        }
+        // Verifica se alguma linha foi afetada (se o ID existia)
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Serviço não encontrado.' });
+        }
+        res.status(200).json({ message: 'Serviço excluído com sucesso!' });
+    });
+});
 
 module.exports = router;
