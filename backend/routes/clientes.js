@@ -1,123 +1,189 @@
 const express = require('express');
-const db = require('../db/connection');
+const db = require('../db/connection'); 
 const router = express.Router();
 
-// Rota para adicionar cliente (clientes.js)
-router.post('/add', (req, res) => {
-    const { name, vencimento, servico, whatsapp, observacoes, valor_cobrado, custo } = req.body;
 
-    // Se os valores não forem enviados, utiliza os padrões
+
+// Função helper para registrar logs
+async function logAction(actionType, clientId = null, details = null, userId = null, revertable = false, originalData = null) {
+  try {
+    const query = `
+      INSERT INTO action_log (action_type, client_id, details, user_id, revertable, original_data) 
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
+    // Convert originalData para JSON string se não for null
+    const originalDataJson = originalData ? JSON.stringify(originalData) : null;
+    await db.query(query, [actionType, clientId, details, userId, revertable, originalDataJson]);
+    console.log(`Ação registrada: ${actionType} - Cliente ID: ${clientId}`);
+  } catch (error) {
+    console.error('Erro ao registrar ação no log:', error);
+    // Não paramos a execução principal se o log falhar, mas registramos o erro
+  }
+}
+
+// Rota para adicionar cliente (MODIFICADA PARA LOG)
+router.post('/add', async (req, res) => { // <--- async
+    const { name, vencimento, servico, whatsapp, observacoes, valor_cobrado, custo } = req.body;
     const valorCobrado = valor_cobrado ? parseFloat(valor_cobrado) : 15.00;
     const custoValor = custo ? parseFloat(custo) : 6.00;
 
-    db.query(
-        'INSERT INTO clientes (name, vencimento, servico, whatsapp, observacoes, valor_cobrado, custo) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [name, vencimento, servico, whatsapp, observacoes, valorCobrado, custoValor],
-        (err, results) => {
-            if (err) return res.status(500).json({ error: 'Erro ao adicionar cliente' });
-            res.status(201).json({ message: 'Cliente adicionado com sucesso!' });
-        }
-    );
+    try {
+        const [results] = await db.query( // <--- await e [results]
+            'INSERT INTO clientes (name, vencimento, servico, whatsapp, observacoes, valor_cobrado, custo) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [name, vencimento, servico, whatsapp, observacoes, valorCobrado, custoValor]
+        );
+        const newClientId = results.insertId;
+        // Log da ação
+        await logAction('CREATE_CLIENT', newClientId, `Cliente "${name}" criado.`); 
+        res.status(201).json({ message: 'Cliente adicionado com sucesso!' });
+    } catch (err) {
+        console.error('Erro ao adicionar cliente:', err);
+        res.status(500).json({ error: 'Erro ao adicionar cliente' });
+    }
 });
 
 
-router.delete('/delete/:id', (req, res) => {
+// Rota para deletar cliente (MODIFICADA PARA LOG)
+router.delete('/delete/:id', async (req, res) => { // <--- async
     const { id } = req.params;
-    db.query('DELETE FROM clientes WHERE id = ?', [id], (err) => {
-        if (err) return res.status(500).json({ error: 'Erro ao excluir cliente' });
+    try {
+        // 1. Buscar dados do cliente ANTES de deletar (para log e possível reversão)
+        const [clientData] = await db.query('SELECT * FROM clientes WHERE id = ?', [id]);
+        if (clientData.length === 0) {
+          return res.status(404).json({ error: 'Cliente não encontrado para exclusão.' });
+        }
+        const originalClient = clientData[0];
+
+        // 2. Deletar o cliente
+        await db.query('DELETE FROM clientes WHERE id = ?', [id]);
+
+        // 3. Logar a ação com os dados originais
+        await logAction(
+          'DELETE_CLIENT', 
+          id, 
+          `Cliente "${originalClient.name}" (ID: ${id}) excluído.`,
+          null, // userId (se tiver)
+          true, // Marcamos como revertível
+          originalClient // Guardamos os dados originais
+        ); 
         res.status(200).json({ message: 'Cliente excluído com sucesso!' });
-    });
+    } catch (err) {
+        console.error('Erro ao excluir cliente:', err);
+        res.status(500).json({ error: 'Erro ao excluir cliente' });
+    }
 });
 
 
-router.put('/update/:id', (req, res) => {
+// Rota para atualizar cliente (MODIFICADA PARA LOG)
+router.put('/update/:id', async (req, res) => { // <--- async
     const clientId = req.params.id;
     const { name, vencimento, servico, whatsapp, observacoes, valor_cobrado, custo } = req.body;
 
-    const query = `
-        UPDATE clientes 
-        SET name = ?, vencimento = ?, servico = ?, whatsapp = ?, observacoes = ?, valor_cobrado = ?, custo = ?
-        WHERE id = ?
-    `;
+    try {
+        // 1. Buscar dados atuais ANTES de atualizar
+        const [currentData] = await db.query('SELECT * FROM clientes WHERE id = ?', [clientId]);
+        if (currentData.length === 0) {
+          return res.status(404).json({ error: 'Cliente não encontrado para atualização.' });
+        }
+        const originalClient = currentData[0];
 
-    db.query(query, [name, vencimento, servico, whatsapp, observacoes, valor_cobrado, custo, clientId], (err, result) => {
-        if (err) {
-            console.error('Erro ao atualizar cliente:', err);
-            return res.status(500).json({ error: 'Erro ao atualizar cliente.' });
+        // 2. Montar a query de atualização
+        const query = `
+            UPDATE clientes 
+            SET name = ?, vencimento = ?, servico = ?, whatsapp = ?, observacoes = ?, valor_cobrado = ?, custo = ?
+            WHERE id = ?
+        `;
+        // Garantir que a data esteja no formato correto YYYY-MM-DD
+        const formattedVencimento = vencimento ? new Date(vencimento).toISOString().split('T')[0] : null;
+
+        // 3. Executar a atualização
+        await db.query(query, [name, formattedVencimento, servico, whatsapp, observacoes, valor_cobrado, custo, clientId]);
+
+        // 4. Montar detalhes do log (quais campos mudaram)
+        let details = `Cliente "${name}" (ID: ${clientId}) atualizado.`;
+        const changes = [];
+        if (originalClient.name !== name) changes.push(`Nome: '${originalClient.name}' -> '${name}'`);
+        // Compare apenas a parte da data YYYY-MM-DD
+        const originalVencimento = originalClient.vencimento ? new Date(originalClient.vencimento).toISOString().split('T')[0] : null;
+        if (originalVencimento !== formattedVencimento) changes.push(`Vencimento: '${originalVencimento}' -> '${formattedVencimento}'`);
+        if (originalClient.servico !== servico) changes.push(`Serviço: '${originalClient.servico}' -> '${servico}'`);
+        // Adicionar comparações para outros campos (whatsapp, valor, custo, obs) se desejar log detalhado
+        if (changes.length > 0) {
+          details += ` Mudanças: ${changes.join(', ')}.`;
         }
 
+        // 5. Logar a ação com dados originais
+        await logAction(
+          'UPDATE_CLIENT', 
+          clientId, 
+          details,
+          null, // userId
+          true, // Marcamos como revertível
+          originalClient // Dados originais
+        ); 
         res.status(200).json({ message: 'Cliente atualizado com sucesso!' });
-    });
+    } catch (err) {
+        console.error('Erro ao atualizar cliente:', err);
+        res.status(500).json({ error: 'Erro ao atualizar cliente.' });
+    }
 });
 
 
-router.put('/mark-pending/:id', (req, res) => {
-    const { id } = req.params;
-    db.query('UPDATE clientes SET status = "Não pagou" WHERE id = ?', [id], (err) => {
-        if (err) return res.status(500).json({ error: 'Erro ao atualizar status' });
-        res.status(200).json({ message: 'Cliente marcado como pagamento pendente' });
-    });
-});
 
-
-router.put('/mark-paid/:id', (req, res) => {
-    const { id } = req.params;
-    db.query('UPDATE clientes SET status = "cobrança feita" WHERE id = ?', [id], (err) => {
-        if (err) return res.status(500).json({ error: 'Erro ao atualizar status' });
-        res.status(200).json({ message: 'Cliente marcado como cobrança feita' });
-    });
-});
 
 // Em backend/routes/clientes.js
 
-router.get('/dashboard-stats', (req, res) => {
-    const today = new Date().toISOString().split('T')[0];
-    const threeDays = new Date();
-    threeDays.setDate(threeDays.getDate() + 3);
-    const threeDaysLater = threeDays.toISOString().split('T')[0];
+// Rota para marcar status (MODIFICADA PARA LOG)
+// Função genérica para evitar repetição
+async function updateClientStatusAndLog(req, res, status, actionType, logDetails) {
+  const { id } = req.params;
+  try {
+    // 1. Buscar dados atuais
+     const [currentData] = await db.query('SELECT status, name FROM clientes WHERE id = ?', [id]);
+     if (currentData.length === 0) {
+       return res.status(404).json({ error: 'Cliente não encontrado.' });
+     }
+     const originalStatus = currentData[0].status;
+     const clientName = currentData[0].name;
 
-    // Para o "Resto(mês)"
-    const endOfMonth = new Date(threeDays.getFullYear(), threeDays.getMonth() + 1, 0)
-                       .toISOString().split('T')[0];
-                       
-    // (Ajuste esta lógica de "validClients" conforme sua regra de negócio)
-    // Aqui, consideramos "validos" = que vencem a partir de hoje
-    const validClientsCondition = `vencimento >= '${today}'`;
+     // Evita update desnecessário e log repetido
+     if (originalStatus === status) {
+        return res.status(200).json({ message: `Cliente já está com status "${status}".` });
+     }
 
-    const queries = {
-        custoTotal: `SELECT SUM(custo) as total FROM clientes WHERE ${validClientsCondition}`,
-        valorApurado: `SELECT SUM(valor_cobrado) as total FROM clientes WHERE ${validClientsCondition}`,
-        totalClientes: `SELECT COUNT(*) as total FROM clientes`,
-        vencidos: `SELECT COUNT(*) as total FROM clientes WHERE vencimento < '${today}'`,
-        vence3: `SELECT COUNT(*) as total FROM clientes WHERE vencimento >= '${today}' AND vencimento <= '${threeDaysLater}'`,
-        emdias: `SELECT COUNT(*) as total FROM clientes WHERE vencimento > '${threeDaysLater}'`,
-        previsto: `SELECT SUM(valor_cobrado) as total FROM clientes WHERE vencimento >= '${today}' AND vencimento <= '${endOfMonth}'`
-    };
+    // 2. Atualizar status
+    await db.query('UPDATE clientes SET status = ? WHERE id = ?', [status, id]);
 
-    // Executamos todas as queries
-    // NOTA: Esta abordagem (múltiplas queries) é simples. 
-    // Uma query SQL única com sub-selects seria mais rápida, mas esta é mais fácil de ler.
-    
-    db.query(Object.values(queries).join(';'), (err, results) => {
-        if (err) {
-            console.error('Erro ao buscar stats do dashboard:', err);
-            return res.status(500).json({ error: 'Erro ao buscar estatísticas.' });
-        }
-        
-        // O driver mysql2 retorna um array de arrays de resultados para múltiplas queries
-        const stats = {
-            custoTotal: results[0][0].total || 0,
-            valorApurado: results[1][0].total || 0,
-            lucro: (results[1][0].total || 0) - (results[0][0].total || 0), // Lucro é calculado
-            totalClientes: results[2][0].total || 0,
-            vencidos: results[3][0].total || 0,
-            vence3: results[4][0].total || 0,
-            emdias: results[5][0].total || 0,
-            previsto: results[6][0].total || 0,
-        };
-        
-        res.status(200).json(stats);
-    });
+    // 3. Logar a ação
+    const details = logDetails ? logDetails(clientName, id, originalStatus, status) : `Status do cliente "${clientName}" (ID: ${id}) alterado para "${status}".`;
+    await logAction(
+      actionType, 
+      id, 
+      details,
+      null, // userId
+      true, // Status change is revertable
+      { status: originalStatus } // Guardamos apenas o status original
+    ); 
+    res.status(200).json({ message: `Status do cliente atualizado para "${status}".` });
+  } catch (err) {
+    console.error(`Erro ao marcar status como ${status}:`, err);
+    res.status(500).json({ error: `Erro ao marcar status como ${status}` });
+  }
+}
+
+router.put('/mark-pending/:id', (req, res) => {
+    updateClientStatusAndLog(req, res, 'Não pagou', 'CHANGE_STATUS', 
+      (name, id, old, newStatus) => `Status do cliente "${name}" (ID: ${id}) alterado de "${old}" para "${newStatus}".`);
+});
+
+router.put('/mark-paid/:id', (req, res) => {
+    updateClientStatusAndLog(req, res, 'cobrança feita', 'CHANGE_STATUS',
+      (name, id, old, newStatus) => `Status do cliente "${name}" (ID: ${id}) alterado de "${old}" para "${newStatus}".`);
+});
+
+router.put('/mark-in-day/:id', (req, res) => {
+    updateClientStatusAndLog(req, res, 'Pag. em dias', 'CHANGE_STATUS',
+      (name, id, old, newStatus) => `Status do cliente "${name}" (ID: ${id}) alterado de "${old}" para "${newStatus}".`);
 });
 
 
@@ -290,51 +356,50 @@ router.get('/get-vencimento/:id', (req, res) => {
 });
 
 
-router.put('/adjust-date/:id', (req, res) => {
+// Rota para ajustar data (MODIFICADA PARA LOG)
+router.put('/adjust-date/:id', async (req, res) => { // <--- async
     const { id } = req.params;
     const { value, unit } = req.body; 
 
     let sqlUnit;
-    if (unit === 'DAY') {
-        sqlUnit = 'DAY';
-    } else if (unit === 'MONTH') {
-        sqlUnit = 'MONTH';
-    } else {
-        return res.status(400).json({ error: 'Unidade inválida. Use DAY ou MONTH.' });
+    if (unit === 'DAY') sqlUnit = 'DAY';
+    else if (unit === 'MONTH') sqlUnit = 'MONTH';
+    else return res.status(400).json({ error: 'Unidade inválida.' });
+
+    try {
+        // 1. Buscar data atual e nome
+        const [currentData] = await db.query('SELECT vencimento, name FROM clientes WHERE id = ?', [id]);
+        if (currentData.length === 0) {
+          return res.status(404).json({ error: 'Cliente não encontrado.' });
+        }
+        const originalDate = currentData[0].vencimento ? new Date(currentData[0].vencimento).toISOString().split('T')[0] : null;
+        const clientName = currentData[0].name;
+
+        // 2. Atualizar data
+        const query = `UPDATE clientes SET vencimento = DATE_ADD(vencimento, INTERVAL ? ${sqlUnit}) WHERE id = ?`;
+        await db.query(query, [value, id]);
+
+        // 3. Buscar nova data (para confirmação e log)
+        const [newData] = await db.query('SELECT vencimento FROM clientes WHERE id = ?', [id]);
+        const newDate = newData[0].vencimento ? new Date(newData[0].vencimento).toISOString().split('T')[0] : null;
+
+        // 4. Logar ação
+        const details = `Vencimento do cliente "${clientName}" (ID: ${id}) ajustado em ${value} ${unit}(s). (${originalDate} -> ${newDate})`;
+        await logAction(
+          'ADJUST_DATE', 
+          id, 
+          details,
+          null, // userId
+          true, // Revertable
+          { vencimento: originalDate } // Guardamos data original
+        ); 
+        res.status(200).json({ message: `Data ajustada com sucesso!`, vencimento: newDate });
+    } catch (err) {
+        console.error('Erro ao ajustar a data:', err);
+        res.status(500).json({ error: 'Erro ao ajustar a data.' });
     }
-
-    // A variável sqlUnit é 100% segura pois foi validada
-    const query = `UPDATE clientes SET vencimento = DATE_ADD(vencimento, INTERVAL ? ${sqlUnit}) WHERE id = ?`;
-
-    db.query(query, [value, id], (err) => {
-        if (err) {
-            console.error('Erro ao ajustar a data:', err);
-            return res.status(500).json({ error: 'Erro ao ajustar a data.' });
-        }
-        db.query('SELECT vencimento FROM clientes WHERE id = ?', [id], (err, results) => {
-            if (err) return res.status(500).json({ error: 'Erro ao buscar data ajustada.' });
-            const formattedDate = results[0].vencimento.toISOString().split('T')[0];
-            res.status(200).json({ message: `Data ajustada com sucesso!`, vencimento: formattedDate});
-        });
-    });
 });
 
-
-router.put('/mark-in-day/:id', (req, res) => {
-    const { id } = req.params;
-
-    db.query(
-        'UPDATE clientes SET status = "Pag. em dias" WHERE id = ?',
-        [id],
-        (err) => {
-            if (err) {
-                console.error('Erro ao atualizar status para em dias:', err);
-                return res.status(500).json({ error: 'Erro ao atualizar status para em dias.' });
-            }
-            res.status(200).json({ message: 'Cliente marcado como em dias com sucesso!' });
-        }
-    );
-});
 
 
 // Rota para buscar a MENSAGEM (VENCIDO)
@@ -368,6 +433,32 @@ router.post('/save-message-vencido', (req, res) => {
         }
     );
 });
+
+// --- NOVA ROTA: Buscar Ações Recentes ---
+router.get('/actions/recent', async (req, res) => {
+  const limit = parseInt(req.query.limit) || 20; // Pega as últimas 20 por padrão
+
+  try {
+    // Busca as ações ordenadas pela mais recente
+    // Faz um LEFT JOIN com clientes para pegar o nome (se client_id não for NULL)
+    const query = `
+      SELECT 
+        log.id, log.action_type, log.client_id, log.details, log.timestamp, 
+        log.revertable, log.reverted,
+        c.name as client_name 
+      FROM action_log log
+      LEFT JOIN clientes c ON log.client_id = c.id
+      ORDER BY log.timestamp DESC
+      LIMIT ?
+    `;
+    const [actions] = await db.query(query, [limit]);
+    res.status(200).json(actions);
+  } catch (err) {
+    console.error('Erro ao buscar ações recentes:', err);
+    res.status(500).json({ error: 'Erro ao buscar ações recentes.' });
+  }
+});
+// --- FIM DA NOVA ROTA ---
 
 router.get('/pagamentos/dias', (req, res) => {
     const query = `
