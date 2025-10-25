@@ -209,7 +209,14 @@ router.get('/dashboard-stats', async (req, res) => {
           SUM(custo) as custoTotal,
           SUM(CASE WHEN status = 'Pag. em dias' THEN valor_cobrado ELSE 0 END) as valorApurado,
           SUM(CASE WHEN status = 'Pag. em dias' THEN valor_cobrado - custo ELSE 0 END) as lucro,
-          SUM(valor_cobrado) as previsto,
+          SUM(CASE 
+                WHEN 
+                    status != 'Pag. em dias' 
+                    AND MONTH(vencimento) = MONTH(CURRENT_DATE()) 
+                    AND YEAR(vencimento) = YEAR(CURRENT_DATE()) 
+                THEN valor_cobrado 
+                ELSE 0 
+            END) as previsto,
           COUNT(*) as totalClientes,
           SUM(CASE WHEN vencimento < ? THEN 1 ELSE 0 END) as vencidos,
           SUM(CASE WHEN vencimento >= ? AND vencimento <= ? THEN 1 ELSE 0 END) as vence3,
