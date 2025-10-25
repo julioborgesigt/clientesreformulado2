@@ -9,16 +9,16 @@ const db = mysql.createPool({
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    multipleStatements: true // Necessário para a rota de stats
-}).promise(); // <--- Adicione .promise() aqui para usar async/await nas rotas
+    multipleStatements: true
+}).promise(); // <-- Only here
 
-db.getConnection((err) => { // A verificação inicial pode usar o callback normal
+// Optional: Keep this initial check or remove if causing issues on deploy
+db.getConnection((err) => { 
     if (err) {
-      console.error("Erro ao conectar ao banco de dados:", err);
-      process.exit(1); // Encerra a aplicação se não conectar
+      console.error("Erro ao conectar ao banco de dados no startup:", err);
     } else {
-      console.log("Conectado ao banco de dados MySQL!");
+      console.log("Pool de conexões MySQL conectado!");
     }
 });
 
-module.exports = db; // Exporta o pool com Promises habilitadas
+module.exports = db; // <-- Export the pool
