@@ -394,6 +394,31 @@ router.get('/pagamentos/dias', (req, res) => {
       res.status(200).json({ days: labels, payments: payments });
     });
   });
+
+  // --- NOVA ROTA: Estatísticas de Clientes por Serviço ---
+router.get('/stats/by-service', (req, res) => {
+    const query = `
+        SELECT servico, COUNT(*) as count 
+        FROM clientes 
+        WHERE servico IS NOT NULL AND servico != '' 
+        GROUP BY servico 
+        ORDER BY count DESC
+    `;
+
+    db.query(query, (err, results) => {
+        if (err) {
+            console.error('Erro ao buscar estatísticas por serviço:', err);
+            return res.status(500).json({ error: 'Erro ao buscar estatísticas por serviço.' });
+        }
+        
+        // Formata os resultados para Chart.js (labels = nomes, data = contagens)
+        const labels = results.map(row => row.servico);
+        const data = results.map(row => row.count);
+
+        res.status(200).json({ labels, data });
+    });
+});
+// --- FIM DA NOVA ROTA ---
   
 // *** CORREÇÃO: MOVIDO PARA O FINAL DO ARQUIVO ***
 module.exports = router;
