@@ -5,27 +5,20 @@ const dotenv = require('dotenv');
 const path = require('path'); // Importação do módulo path
 
 dotenv.config();
-
-
-
 const app = express();
-
 app.use(cors());
 app.use(bodyParser.json());
 
 
-
-  
-
-
 const authRoutes = require('./routes/auth');
 const clientesRoutes = require('./routes/clientes');
+const servicosRoutes = require('./routes/servicos');
 const authMiddleware = require('./middleware/authMiddleware');
 
  // Rotas
 app.use('/auth', authRoutes);
 app.use('/clientes', authMiddleware, clientesRoutes);
-
+app.use('/servicos', authMiddleware, servicosRoutes);
   
 
 // Configura o uso de arquivos estáticos (CSS, JS, etc.) a partir da pasta frontend
@@ -46,3 +39,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Servidor rodando na porta ${PORT}`);
 });
+
+module.exports = app;
