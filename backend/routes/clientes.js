@@ -211,7 +211,7 @@ router.get('/dashboard-stats', async (req, res) => {
           SUM(CASE WHEN status = 'Pag. em dias' THEN valor_cobrado - custo ELSE 0 END) as lucro,
           SUM(CASE 
                 WHEN 
-                    status != 'Pag. em dias' 
+                    status = 'Pag. em dias' 
                     AND MONTH(vencimento) = MONTH(CURRENT_DATE()) 
                     AND YEAR(vencimento) = YEAR(CURRENT_DATE()) 
                 THEN valor_cobrado 
@@ -468,6 +468,36 @@ router.post('/actions/:logId/revert', async (req, res) => {
     } catch (err) {
         console.error(`Erro ao reverter ação ID ${logId}:`, err);
         res.status(500).json({ error: 'Erro interno ao tentar reverter a ação.' });
+    }
+});
+// --- FIM DA NOVA ROTA ---
+
+// --- NOVA ROTA: Listar Clientes Pendentes do Mês Atual ---
+router.get('/pending-this-month', async (req, res) => {
+    try {
+        // Query com os mesmos filtros usados no SUM do /dashboard-stats
+        const query = `
+            SELECT id, name, vencimento, valor_cobrado, status 
+            FROM clientes 
+            WHERE 
+                status = 'Pag. em dias' 
+                AND MONTH(vencimento) = MONTH(CURRENT_DATE()) 
+                AND YEAR(vencimento) = YEAR(CURRENT_DATE())
+            ORDER BY vencimento ASC; 
+        `;
+        const [clients] = await db.query(query);
+
+        // Formata a data antes de enviar (opcional, mas bom para consistência)
+         const formattedClients = clients.map(client => ({
+            ...client,
+            vencimento: client.vencimento ? new Date(client.vencimento).toISOString().split('T')[0] : null 
+        }));
+
+        res.status(200).json(formattedClients); // Retorna a lista de clientes
+
+    } catch (err) {
+        console.error('Erro ao buscar clientes pendentes do mês:', err);
+        res.status(500).json({ error: 'Erro ao buscar clientes pendentes do mês.' });
     }
 });
 // --- FIM DA NOVA ROTA ---
