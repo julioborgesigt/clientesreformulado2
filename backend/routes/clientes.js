@@ -98,23 +98,75 @@ async function updateClientStatusAndLog(req, res, status, actionType, logDetails
 router.put('/mark-pending/:id', (req, res) => { updateClientStatusAndLog(req, res, 'Não pagou', 'CHANGE_STATUS', (name, id, old, newStatus) => `Status do cliente "${name}" (ID: ${id}) alterado de "${old}" para "${newStatus}".`); });
 router.put('/mark-paid/:id', (req, res) => { updateClientStatusAndLog(req, res, 'cobrança feita', 'CHANGE_STATUS', (name, id, old, newStatus) => `Status do cliente "${name}" (ID: ${id}) alterado de "${old}" para "${newStatus}".`); });
 router.put('/mark-in-day/:id', (req, res) => { updateClientStatusAndLog(req, res, 'Pag. em dias', 'CHANGE_STATUS', (name, id, old, newStatus) => `Status do cliente "${name}" (ID: ${id}) alterado de "${old}" para "${newStatus}".`); });
-router.put('/adjust-date/:id', async (req, res) => { /* ... seu código async/await ... */ 
+router.put('/adjust-date/:id', async (req, res) => { 
     const { id } = req.params;
-    const { value, unit } = req.body; 
+    const { value, unit } = req.body; // value: ex: 1 ou -1, unit: 'DAY' ou 'MONTH'
+    
+    // Validação da unidade
     let sqlUnit;
-    if (unit === 'DAY') sqlUnit = 'DAY'; else if (unit === 'MONTH') sqlUnit = 'MONTH'; else return res.status(400).json({ error: 'Unidade inválida.' });
+    if (unit === 'DAY') sqlUnit = 'DAY'; 
+    else if (unit === 'MONTH') sqlUnit = 'MONTH'; 
+    else return res.status(400).json({ error: 'Unidade inválida.' });
+
+    // Garante que 'value' é um número inteiro
+    const intervalValue = parseInt(value);
+    if (isNaN(intervalValue)) {
+        return res.status(400).json({ error: 'Valor do intervalo inválido.' });
+    }
+
     try {
-        const [currentData] = await db.query('SELECT vencimento, name FROM clientes WHERE id = ?', [id]);
-        if (currentData.length === 0) { return res.status(404).json({ error: 'Cliente não encontrado.' }); }
-        const originalDate = currentData[0].vencimento ? new Date(currentData[0].vencimento).toISOString().split('T')[0] : null;
-        const clientName = currentData[0].name;
-        const query = `UPDATE clientes SET vencimento = DATE_ADD(vencimento, INTERVAL ? ${sqlUnit}) WHERE id = ?`;
-        await db.query(query, [value, id]);
+        // 1. Buscar dados atuais (data e status) ANTES da alteração
+        const [currentData] = await db.query('SELECT vencimento, status, name FROM clientes WHERE id = ?', [id]);
+        if (currentData.length === 0) { 
+            return res.status(404).json({ error: 'Cliente não encontrado.' }); 
+        }
+        const originalClient = currentData[0];
+        const originalDate = originalClient.vencimento ? new Date(originalClient.vencimento).toISOString().split('T')[0] : null;
+        const originalStatus = originalClient.status;
+        const clientName = originalClient.name;
+
+        // 2. Construir a query de atualização da data
+        const updateDateQuery = `UPDATE clientes SET vencimento = DATE_ADD(vencimento, INTERVAL ? ${sqlUnit}) WHERE id = ?`;
+        
+        // 3. Executar a atualização da data
+        await db.query(updateDateQuery, [intervalValue, id]);
+
+        // --- INÍCIO DA LÓGICA DE ATUALIZAÇÃO DE STATUS ---
+        let statusUpdated = false;
+        let newStatus = originalStatus; // Assume que o status não muda por padrão
+        // Se a ação foi ADICIONAR (value > 0) e a unidade foi MÊS
+        if (unit === 'MONTH' && intervalValue > 0) {
+            // Verifica se o status atual JÁ NÃO É 'Pag. em dias' para evitar update desnecessário
+            if (originalStatus !== 'Pag. em dias') {
+                await db.query('UPDATE clientes SET status = ? WHERE id = ?', ['Pag. em dias', id]);
+                newStatus = 'Pag. em dias'; // Atualiza a variável para o log
+                statusUpdated = true;
+                console.log(`Status do cliente ID ${id} atualizado para 'Pag. em dias' após adicionar ${intervalValue} mês(es).`);
+            }
+        }
+        // --- FIM DA LÓGICA DE ATUALIZAÇÃO DE STATUS ---
+
+        // 4. Buscar nova data (para confirmação e log)
         const [newData] = await db.query('SELECT vencimento FROM clientes WHERE id = ?', [id]);
         const newDate = newData[0].vencimento ? new Date(newData[0].vencimento).toISOString().split('T')[0] : null;
-        const details = `Vencimento do cliente "${clientName}" (ID: ${id}) ajustado em ${value} ${unit}(s). (${originalDate} -> ${newDate})`;
-        await logAction('ADJUST_DATE', id, details, null, true, { vencimento: originalDate }); 
-        res.status(200).json({ message: `Data ajustada com sucesso!`, vencimento: newDate });
+
+        // 5. Montar detalhes do log (incluindo mudança de status se houver)
+        let details = `Vencimento do cliente "${clientName}" (ID: ${id}) ajustado em ${intervalValue} ${unit}(s). (${originalDate} -> ${newDate})`;
+        if (statusUpdated) {
+          details += ` Status alterado de "${originalStatus}" para "${newStatus}".`;
+        }
+        // Guarda ambos os dados originais (data e status) para reversão
+        const originalLogData = { vencimento: originalDate, status: originalStatus }; 
+
+        // 6. Logar a ação
+        await logAction('ADJUST_DATE', id, details, null, true, originalLogData); 
+        
+        // 7. Enviar resposta
+        res.status(200).json({ 
+            message: `Data ajustada com sucesso!${statusUpdated ? ' Status atualizado para "Pag. em dias".' : ''}`, 
+            vencimento: newDate 
+        });
+
     } catch (err) {
         console.error('Erro ao ajustar a data:', err);
         res.status(500).json({ error: 'Erro ao ajustar a data.' });
