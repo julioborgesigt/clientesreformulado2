@@ -532,7 +532,7 @@ router.get('/pending-this-month', async (req, res) => {
             SELECT id, name, vencimento, valor_cobrado, status 
             FROM clientes 
             WHERE 
-                status = 'Pag. em dias' 
+                status != 'Não pagou' 
                 AND MONTH(vencimento) = MONTH(CURRENT_DATE()) 
                 AND YEAR(vencimento) = YEAR(CURRENT_DATE())
             ORDER BY vencimento ASC; 
