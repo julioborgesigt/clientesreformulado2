@@ -259,11 +259,11 @@ router.get('/dashboard-stats', async (req, res) => {
   const query = `
       SELECT
           SUM(custo) as custoTotal,
-          SUM(CASE WHEN status = 'Pag. em dias' THEN valor_cobrado ELSE 0 END) as valorApurado,
-          SUM(CASE WHEN status = 'Pag. em dias' THEN valor_cobrado - custo ELSE 0 END) as lucro,
+          SUM(CASE WHEN status != 'Não pagou' THEN valor_cobrado ELSE 0 END) as valorApurado,
+          SUM(CASE WHEN status != 'Não pagou' THEN valor_cobrado - custo ELSE 0 END) as lucro,
           SUM(CASE 
                 WHEN 
-                    status = 'Pag. em dias' 
+                    status != 'Não pagou' 
                     AND MONTH(vencimento) = MONTH(CURRENT_DATE()) 
                     AND YEAR(vencimento) = YEAR(CURRENT_DATE()) 
                 THEN valor_cobrado 
