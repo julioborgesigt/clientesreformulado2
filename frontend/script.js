@@ -115,6 +115,16 @@ function getAuthHeaders(contentType = 'application/json') {
     return window.auth.getAuthHeaders(contentType);
 }
 
+// NOVO: Wrapper para fetch com renovação automática de tokens
+// Usa a função authenticatedFetch do módulo auth.js que:
+// - Adiciona automaticamente o token de autorização
+// - Renova o access token se expirado (usando refresh token)
+// - Retenta a requisição com o novo token
+// - Só redireciona para login se o refresh token também expirou
+async function authenticatedFetch(url, options = {}) {
+    return window.auth.authenticatedFetch(url, options);
+}
+
 // Função para buscar clientes do backend (AGORA PAGINADA)
 async function fetchClients() {
   // Constrói a URL com os parâmetros de estado
@@ -131,7 +141,7 @@ async function fetchClients() {
 
   try {
     // Envia a requisição com os parâmetros
-    const response = await fetch(`/clientes/list?${params.toString()}`, {
+    const response = await authenticatedFetch(`/clientes/list?${params.toString()}`, {
         headers: getAuthHeaders(null) // CORRIGIDO: Envia o token
     });
 
@@ -313,7 +323,7 @@ async function updateData() {
 // Função para atualizar os contadores (cards) - AGORA OTIMIZADA
 async function updateDashboardCounts() {
   try {
-      const response = await fetch('/clientes/dashboard-stats', {
+      const response = await authenticatedFetch('/clientes/dashboard-stats', {
           headers: getAuthHeaders(null) // Envia o token
       });
     
@@ -343,7 +353,7 @@ async function updateDashboardCounts() {
 window.adjustDate = async function(event, clientId, value, unit) {
   event.preventDefault(); // <-- ADICIONADO
   try {
-    const response = await fetch(`/clientes/adjust-date/${clientId}`, {
+    const response = await authenticatedFetch(`/clientes/adjust-date/${clientId}`, {
       method: 'PUT',
       headers: getAuthHeaders('application/json'), // CORRIGIDO: Envia o token
       body: JSON.stringify({ value, unit })
@@ -358,7 +368,7 @@ window.adjustDate = async function(event, clientId, value, unit) {
 
     // ✅ Se adicionou 1 mês, já marca como "Pag. em dias"
     if (unit === 'MONTH' && value > 0) {
-      await fetch(`/clientes/mark-in-day/${clientId}`, { 
+      await authenticatedFetch(`/clientes/mark-in-day/${clientId}`, { 
             method: 'PUT', 
             headers: getAuthHeaders(null) // CORRIGIDO: Envia o token
         });
@@ -375,7 +385,7 @@ window.adjustDate = async function(event, clientId, value, unit) {
 window.markAsPending = async function(event, id) {
   event.preventDefault(); // <-- ADICIONADO
   try {
-    const response = await fetch(`/clientes/mark-pending/${id}`, { 
+    const response = await authenticatedFetch(`/clientes/mark-pending/${id}`, { 
         method: 'PUT',
         headers: getAuthHeaders(null) // CORRIGIDO: Envia o token
     });
@@ -391,7 +401,7 @@ window.markAsPending = async function(event, id) {
 window.markAsPaid = async function(event, id) {
   event.preventDefault(); // <-- ADICIONADO
   try {
-    const response = await fetch(`/clientes/mark-paid/${id}`, { 
+    const response = await authenticatedFetch(`/clientes/mark-paid/${id}`, { 
         method: 'PUT',
         headers: getAuthHeaders(null) // CORRIGIDO: Envia o token
     });
@@ -408,7 +418,7 @@ window.markAsPaid = async function(event, id) {
 window.markAsInDay = async function(event, id) {
   event.preventDefault(); // <-- ADICIONADO
   try {
-    const response = await fetch(`/clientes/mark-in-day/${id}`, { 
+    const response = await authenticatedFetch(`/clientes/mark-in-day/${id}`, { 
         method: 'PUT',
         headers: getAuthHeaders(null) // CORRIGIDO: Envia o token
     });
@@ -452,7 +462,7 @@ window.showDeleteConfirmation = function(event, clientId, clientName) {
 // NOVA FUNÇÃO: A lógica que realmente deleta (antes era "deleteClient")
 async function executeDelete(id) {
   try {
-    const response = await fetch(`/clientes/delete/${id}`, { 
+    const response = await authenticatedFetch(`/clientes/delete/${id}`, { 
         method: 'DELETE',
         headers: getAuthHeaders(null)
     });
@@ -468,7 +478,7 @@ async function executeDelete(id) {
 
 window.getClientVencimento = async function(clientId) {
   try {
-    const response = await fetch(`/clientes/get-vencimento/${clientId}`, {
+    const response = await authenticatedFetch(`/clientes/get-vencimento/${clientId}`, {
         headers: getAuthHeaders(null) // CORRIGIDO: Envia o token
     });
     const data = await response.json();
@@ -496,7 +506,7 @@ window.editClient = async function(clientId) {
   if (isNaN(custo)) custo = 6.00;
 
   try {
-    const response = await fetch(`/clientes/update/${clientId}`, {
+    const response = await authenticatedFetch(`/clientes/update/${clientId}`, {
       method: 'PUT',
       headers: getAuthHeaders('application/json'), // CORRIGIDO: Envia o token
       body: JSON.stringify({ name, vencimento, servico, whatsapp, observacoes, valor_cobrado, custo })
@@ -587,7 +597,7 @@ window.displayRegistrationForm = function() {
     const client = { name, vencimento, servico, whatsapp, observacoes, valor_cobrado, custo };
     
     try {
-      const response = await fetch('/clientes/add', {
+      const response = await authenticatedFetch('/clientes/add', {
         method: 'POST',
         headers: getAuthHeaders('application/json'), 
         body: JSON.stringify(client)
@@ -604,7 +614,7 @@ window.displayRegistrationForm = function() {
 
 window.displayEditMessageForm = async function() {
   try {
-    const response = await fetch('/clientes/get-message', {
+    const response = await authenticatedFetch('/clientes/get-message', {
         headers: getAuthHeaders(null)
     });
     const data = await response.json();
@@ -633,7 +643,7 @@ window.displayEditMessageForm = async function() {
         alert('A mensagem não pode estar vazia.');
         return;
       }
-      const saveResponse = await fetch('/clientes/save-message', {
+      const saveResponse = await authenticatedFetch('/clientes/save-message', {
         method: 'POST',
         headers: getAuthHeaders('application/json'),
         body: JSON.stringify({ message: newMessage })
@@ -726,7 +736,7 @@ window.hideEditForm = function() {
 window.sendWhatsAppMessage = async function(event, whatsapp, clientId) {
   event.preventDefault(); // <-- ADICIONADO
   try {
-    const response = await fetch('/clientes/get-message', {
+    const response = await authenticatedFetch('/clientes/get-message', {
         headers: getAuthHeaders(null) // CORRIGIDO: Envia o token
     });
     const data = await response.json();
@@ -754,7 +764,7 @@ window.sendWhatsAppMessage = async function(event, whatsapp, clientId) {
 
 window.displayEditMessageVencidoForm = async function() {
   try {
-    const response = await fetch('/clientes/get-message-vencido', {
+    const response = await authenticatedFetch('/clientes/get-message-vencido', {
         headers: getAuthHeaders(null)
     });
     const data = await response.json();
@@ -783,7 +793,7 @@ window.displayEditMessageVencidoForm = async function() {
         alert('A mensagem não pode estar vazia.');
         return;
       }
-      const saveResponse = await fetch('/clientes/save-message-vencido', {
+      const saveResponse = await authenticatedFetch('/clientes/save-message-vencido', {
         method: 'POST',
         headers: getAuthHeaders('application/json'),
         body: JSON.stringify({ message: newMessage })
@@ -806,7 +816,7 @@ window.sendWhatsAppMessageVencido = async function(event, whatsapp, clientId) {
   event.preventDefault(); // <-- ADICIONADO
   try {
     // Busca a mensagem (VENCIDO)
-    const response = await fetch('/clientes/get-message-vencido', { 
+    const response = await authenticatedFetch('/clientes/get-message-vencido', { 
         headers: getAuthHeaders(null)
     });
     const data = await response.json();
@@ -854,7 +864,7 @@ function removeAccents(str) {
 // Funções para renderizar o gráfico
 async function renderChart() {
   try {
-    const response = await fetch('/clientes/pagamentos/dias', { // Rota /clientes/...
+    const response = await authenticatedFetch('/clientes/pagamentos/dias', { // Rota /clientes/...
         headers: getAuthHeaders(null) // CORRIGIDO: Envia o token
     });
     
