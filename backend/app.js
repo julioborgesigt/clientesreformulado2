@@ -5,6 +5,8 @@ const dotenv = require('dotenv');
 const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
+const { doubleCsrf } = require('csrf-csrf');
 const logger = require('./utils/logger');
 
 dotenv.config();
@@ -37,7 +39,33 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
+// Cookie parser - necessário para CSRF
+app.use(cookieParser());
+
 app.use(bodyParser.json());
+
+// Configuração de CSRF Protection
+const {
+  generateToken,
+  doubleCsrfProtection,
+} = doubleCsrf({
+  getSecret: () => process.env.CSRF_SECRET || process.env.JWT_SECRET,
+  cookieName: '__Host-psifi.x-csrf-token',
+  cookieOptions: {
+    sameSite: 'strict',
+    path: '/',
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+  },
+  size: 64,
+  ignoredMethods: ['GET', 'HEAD', 'OPTIONS'],
+});
+
+// Endpoint para obter CSRF token
+app.get('/api/csrf-token', (req, res) => {
+  const csrfToken = generateToken(req, res);
+  res.json({ csrfToken });
+});
 
 
 const authRoutes = require('./routes/auth');
@@ -49,10 +77,12 @@ const setupSwagger = require('./swagger');
 // Documentação Swagger
 setupSwagger(app);
 
- // Rotas
-app.use('/auth', authRoutes);
-app.use('/clientes', authMiddleware, clientesRoutes);
-app.use('/servicos', authMiddleware, servicosRoutes);
+ // Rotas com proteção CSRF
+// Auth routes - CSRF aplicado apenas em POST/PUT/DELETE (GET é ignorado pela config)
+app.use('/auth', doubleCsrfProtection, authRoutes);
+// Rotas protegidas por autenticação + CSRF
+app.use('/clientes', authMiddleware, doubleCsrfProtection, clientesRoutes);
+app.use('/servicos', authMiddleware, doubleCsrfProtection, servicosRoutes);
   
 
 // Configura o uso de arquivos estáticos (CSS, JS, etc.) a partir da pasta frontend

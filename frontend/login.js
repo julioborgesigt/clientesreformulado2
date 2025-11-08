@@ -1,5 +1,8 @@
 // Aguarda o DOM ser carregado antes de executar o código
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Inicializa o sistema de autenticação (busca CSRF token)
+    await window.auth.initAuth();
+
     const toggleForms = document.querySelectorAll('.toggle-form');
     const container = document.querySelector('.auth-container');
 
@@ -29,7 +32,8 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
     const password = document.getElementById('register-password').value;
 
     try {
-        const response = await fetch('/auth/register', {
+        // Usa authenticatedFetch que inclui CSRF token automaticamente
+        const response = await window.auth.authenticatedFetch('/auth/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, email, password }),
@@ -38,6 +42,8 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
         const data = await response.json();
         if (response.ok) {
             alert(data.message);
+            // Limpa o formulário
+            document.getElementById('register-form').reset();
         } else {
             alert(data.error || 'Erro ao registrar usuário.');
         }
@@ -49,15 +55,15 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
 
 
 // Evento de login
-// Evento de login
 document.getElementById('login-form').addEventListener('submit', async (e) => {
-    e.preventDefault(); 
+    e.preventDefault();
 
     const email = document.getElementById('login-email').value;
     const password = document.getElementById('login-password').value;
 
     try {
-        const response = await fetch('/auth/login', {
+        // Usa authenticatedFetch que inclui CSRF token automaticamente
+        const response = await window.auth.authenticatedFetch('/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password }),
@@ -65,11 +71,12 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 
         const data = await response.json();
         if (response.ok) {
-            // *** LINHA CRÍTICA A SER ADICIONADA ***
-            // Salva o token no armazenamento local do navegador
-            localStorage.setItem('token', data.token); 
-            // *************************************
-            
+            // Salva ambos os tokens no armazenamento local
+            localStorage.setItem('accessToken', data.accessToken);
+            localStorage.setItem('refreshToken', data.refreshToken);
+            // Mantém compatibilidade com código legado que usa 'token'
+            localStorage.setItem('token', data.accessToken);
+
             alert(data.message);
             window.location.href = '/dashboard.html';
         } else {

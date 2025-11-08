@@ -110,16 +110,9 @@ window.toggleDropdown = function(event, clientId) {
 // Fim das novas funções
 
 // NOVO: Helper para obter os cabeçalhos de autenticação
+// Usa a função getAuthHeaders do módulo auth.js que inclui CSRF token
 function getAuthHeaders(contentType = 'application/json') {
-    const token = localStorage.getItem('token');
-    const headers = {
-        'Authorization': 'Bearer ' + token
-    };
-    // Adiciona Content-Type apenas se for necessário (para POST/PUT com JSON)
-    if (contentType) {
-        headers['Content-Type'] = contentType;
-    }
-    return headers;
+    return window.auth.getAuthHeaders(contentType);
 }
 
 // Função para buscar clientes do backend (AGORA PAGINADA)
@@ -902,6 +895,9 @@ async function renderChart() {
 
 // Carregamento Inicial e eventos
 document.addEventListener('DOMContentLoaded', async () => {
+  // Inicializa o sistema de autenticação (busca CSRF token)
+  await window.auth.initAuth();
+
   modal = document.getElementById('modal');
   modalBody = document.getElementById('modal-body');
   

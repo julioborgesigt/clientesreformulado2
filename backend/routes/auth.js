@@ -5,6 +5,14 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 const logger = require('../utils/logger');
+const {
+    generateAccessToken,
+    generateRefreshToken,
+    saveRefreshToken,
+    verifyRefreshToken,
+    revokeRefreshToken,
+    revokeAllUserTokens
+} = require('../utils/tokens');
 // Importa a conexão (que já tem .promise() ativado em connection.js)
 const db = require('../db/connection');
 
@@ -176,9 +184,18 @@ router.post('/register', [
  *                 message:
  *                   type: string
  *                   example: Login bem-sucedido!
- *                 token:
+ *                 accessToken:
  *                   type: string
+ *                   description: Token de acesso JWT (15 minutos)
  *                   example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+ *                 refreshToken:
+ *                   type: string
+ *                   description: Token de renovação JWT (7 dias)
+ *                   example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+ *                 expiresIn:
+ *                   type: number
+ *                   description: Tempo de expiração do access token em segundos
+ *                   example: 900
  *       400:
  *         description: Dados inválidos
  *         content:
@@ -248,15 +265,22 @@ router.post('/login', [
                 return res.status(401).json({ error: 'Credenciais inválidas.' });
             }
 
-            // 4. Gera o token JWT
-            const token = jwt.sign(
-                { id: user.id }, 
-                process.env.JWT_SECRET, 
-                { expiresIn: '1h' } // Ou um tempo maior, ex: '8h', '1d'
-            );
+            // 4. Gera access token (15 minutos) e refresh token (7 dias)
+            const accessToken = generateAccessToken(user);
+            const refreshToken = generateRefreshToken(user);
 
-            // 5. Envia a resposta de sucesso
-            res.status(200).json({ message: 'Login bem-sucedido!', token });
+            // 5. Salva o refresh token no banco de dados
+            await saveRefreshToken(user.id, refreshToken);
+
+            logger.info(`Login bem-sucedido para usuário: ${user.email}`);
+
+            // 6. Envia a resposta de sucesso com ambos os tokens
+            res.status(200).json({
+                message: 'Login bem-sucedido!',
+                accessToken,
+                refreshToken,
+                expiresIn: 900 // 15 minutos em segundos
+            });
 
         } catch (compareErr) {
             // Captura erro na comparação da senha
@@ -268,6 +292,146 @@ router.post('/login', [
         // Captura erro na busca do usuário no banco
         logger.error('Erro no banco de dados durante o login:', err);
         res.status(500).json({ error: 'Erro interno no servidor.' });
+    }
+});
+
+/**
+ * @swagger
+ * /auth/refresh:
+ *   post:
+ *     summary: Renova o access token usando refresh token
+ *     tags: [Autenticação]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - refreshToken
+ *             properties:
+ *               refreshToken:
+ *                 type: string
+ *                 example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+ *     responses:
+ *       200:
+ *         description: Token renovado com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
+ *                 expiresIn:
+ *                   type: number
+ *                   example: 900
+ *       400:
+ *         description: Refresh token não fornecido
+ *       401:
+ *         description: Refresh token inválido ou expirado
+ */
+router.post('/refresh', async (req, res) => {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+        return res.status(400).json({ error: 'Refresh token não fornecido.' });
+    }
+
+    try {
+        // Verifica se o refresh token é válido
+        const decoded = await verifyRefreshToken(refreshToken);
+
+        if (!decoded) {
+            return res.status(401).json({ error: 'Refresh token inválido ou expirado.' });
+        }
+
+        // Busca os dados atualizados do usuário
+        const [results] = await db.query(
+            'SELECT id, email, name FROM users WHERE id = ?',
+            [decoded.id]
+        );
+
+        if (results.length === 0) {
+            return res.status(401).json({ error: 'Usuário não encontrado.' });
+        }
+
+        const user = results[0];
+
+        // Gera novos tokens (token rotation)
+        const newAccessToken = generateAccessToken(user);
+        const newRefreshToken = generateRefreshToken(user);
+
+        // Revoga o refresh token antigo e salva o novo
+        await revokeRefreshToken(refreshToken, newRefreshToken);
+        await saveRefreshToken(user.id, newRefreshToken);
+
+        logger.info(`Tokens renovados para usuário: ${user.email}`);
+
+        res.status(200).json({
+            accessToken: newAccessToken,
+            refreshToken: newRefreshToken,
+            expiresIn: 900 // 15 minutos
+        });
+
+    } catch (error) {
+        logger.error('Erro ao renovar token:', error);
+        res.status(500).json({ error: 'Erro interno ao renovar token.' });
+    }
+});
+
+/**
+ * @swagger
+ * /auth/logout:
+ *   post:
+ *     summary: Faz logout revogando o refresh token
+ *     tags: [Autenticação]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - refreshToken
+ *             properties:
+ *               refreshToken:
+ *                 type: string
+ *                 example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+ *     responses:
+ *       200:
+ *         description: Logout realizado com sucesso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Logout realizado com sucesso.
+ *       400:
+ *         description: Refresh token não fornecido
+ */
+router.post('/logout', async (req, res) => {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+        return res.status(400).json({ error: 'Refresh token não fornecido.' });
+    }
+
+    try {
+        // Revoga o refresh token
+        await revokeRefreshToken(refreshToken);
+
+        logger.info('Logout realizado com sucesso');
+
+        res.status(200).json({ message: 'Logout realizado com sucesso.' });
+
+    } catch (error) {
+        logger.error('Erro ao fazer logout:', error);
+        res.status(500).json({ error: 'Erro interno ao fazer logout.' });
     }
 });
 
