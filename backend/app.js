@@ -110,8 +110,19 @@ app.get('/dashboard.html', (req, res) => {
   
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
-});
+
+// Executa migrations e inicia servidor
+const { runMigrations } = require('./db/migrations');
+
+(async () => {
+    // Executa migrations antes de iniciar o servidor
+    await runMigrations();
+
+    // Inicia o servidor
+    app.listen(PORT, () => {
+        console.log(`Servidor rodando na porta ${PORT}`);
+        logger.info(`Servidor iniciado na porta ${PORT}`);
+    });
+})();
 
 module.exports = app;
