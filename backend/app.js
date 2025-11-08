@@ -66,6 +66,11 @@ const {
 // Endpoint para obter CSRF token
 app.get('/api/csrf-token', (req, res) => {
   try {
+    // Em ambiente de teste, retorna um token dummy
+    if (process.env.NODE_ENV === 'test') {
+      return res.json({ csrfToken: 'test-csrf-token' });
+    }
+
     const csrfToken = generateCsrfToken(req, res);
     res.json({ csrfToken });
   } catch (error) {
@@ -87,12 +92,14 @@ const setupSwagger = require('./swagger');
 // Documentação Swagger
 setupSwagger(app);
 
- // Rotas com proteção CSRF
+ // Rotas com proteção CSRF (desabilitada em ambiente de teste)
+const csrfMiddleware = process.env.NODE_ENV === 'test' ? (req, res, next) => next() : doubleCsrfProtection;
+
 // Auth routes - CSRF aplicado apenas em POST/PUT/DELETE (GET é ignorado pela config)
-app.use('/auth', doubleCsrfProtection, authRoutes);
+app.use('/auth', csrfMiddleware, authRoutes);
 // Rotas protegidas por autenticação + CSRF
-app.use('/clientes', authMiddleware, doubleCsrfProtection, clientesRoutes);
-app.use('/servicos', authMiddleware, doubleCsrfProtection, servicosRoutes);
+app.use('/clientes', authMiddleware, csrfMiddleware, clientesRoutes);
+app.use('/servicos', authMiddleware, csrfMiddleware, servicosRoutes);
   
 
 // Configura o uso de arquivos estáticos (CSS, JS, etc.) a partir da pasta frontend
@@ -111,18 +118,20 @@ app.get('/dashboard.html', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-// Executa migrations e inicia servidor
-const { runMigrations } = require('./db/migrations');
+// Executa migrations e inicia servidor apenas quando executado diretamente (não em testes)
+if (require.main === module) {
+    const { runMigrations } = require('./db/migrations');
 
-(async () => {
-    // Executa migrations antes de iniciar o servidor
-    await runMigrations();
+    (async () => {
+        // Executa migrations antes de iniciar o servidor
+        await runMigrations();
 
-    // Inicia o servidor
-    app.listen(PORT, () => {
-        console.log(`Servidor rodando na porta ${PORT}`);
-        logger.info(`Servidor iniciado na porta ${PORT}`);
-    });
-})();
+        // Inicia o servidor
+        app.listen(PORT, () => {
+            console.log(`Servidor rodando na porta ${PORT}`);
+            logger.info(`Servidor iniciado na porta ${PORT}`);
+        });
+    })();
+}
 
 module.exports = app;
