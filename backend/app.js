@@ -45,16 +45,18 @@ app.use(cookieParser());
 app.use(bodyParser.json());
 
 // Configuração de CSRF Protection
+const isProduction = process.env.NODE_ENV === 'production';
 const {
   generateToken,
   doubleCsrfProtection,
 } = doubleCsrf({
   getSecret: () => process.env.CSRF_SECRET || process.env.JWT_SECRET,
-  cookieName: '__Host-psifi.x-csrf-token',
+  // __Host- prefix requer secure: true, então só usa em produção
+  cookieName: isProduction ? '__Host-psifi.x-csrf-token' : 'x-csrf-token',
   cookieOptions: {
     sameSite: 'strict',
     path: '/',
-    secure: process.env.NODE_ENV === 'production',
+    secure: isProduction,
     httpOnly: true,
   },
   size: 64,
