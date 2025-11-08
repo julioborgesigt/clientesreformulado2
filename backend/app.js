@@ -2,10 +2,28 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const path = require('path'); // Importação do módulo path
+const path = require('path');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 dotenv.config();
 const app = express();
+
+// Helmet - Headers de segurança
+app.use(helmet({
+  contentSecurityPolicy: false, // Desabilitar CSP para permitir inline scripts (ajuste conforme necessário)
+  crossOriginEmbedderPolicy: false
+}));
+
+// Rate limiting global - proteção contra ataques de força bruta
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 100, // Máximo de 100 requisições por IP a cada 15 minutos
+  message: 'Muitas requisições deste IP, tente novamente após 15 minutos.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(globalLimiter);
 
 // Configuração segura de CORS
 const corsOptions = {

@@ -2,10 +2,21 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 // Importa a conexão (que já tem .promise() ativado em connection.js)
-const db = require('../db/connection'); 
+const db = require('../db/connection');
 
 const router = express.Router();
+
+// Rate limiter específico para autenticação - mais restritivo
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 5, // Máximo de 5 tentativas de login por IP a cada 15 minutos
+  message: 'Muitas tentativas de login. Tente novamente após 15 minutos.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true, // Não conta requisições bem-sucedidas
+});
 
 // --- Rota de Cadastro (Corrigida com async/await e try...catch) ---
 router.post('/register', async (req, res) => { 
@@ -51,7 +62,7 @@ router.post('/register', async (req, res) => {
 });
 
 // --- Rota de Login (Corrigida com async/await e try...catch) ---
-router.post('/login', async (req, res) => { // <-- Adicionado async
+router.post('/login', authLimiter, async (req, res) => { // Rate limiter aplicado
     const { email, password } = req.body;
 
      // Validação básica

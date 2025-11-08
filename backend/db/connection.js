@@ -8,17 +8,18 @@ const db = mysql.createPool({
     database: process.env.DB_NAME,
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0,
-    multipleStatements: true
-}).promise(); // <-- Only here
+    queueLimit: 0
+    // multipleStatements removido - vulnerabilidade de SQL injection
+}).promise();
 
-// Optional: Keep this initial check or remove if causing issues on deploy
-db.getConnection((err) => { 
-    if (err) {
-      console.error("Erro ao conectar ao banco de dados no startup:", err);
-    } else {
-      console.log("Pool de conexões MySQL conectado!");
-    }
-});
+// Teste de conexão inicial usando Promises
+db.getConnection()
+    .then(connection => {
+        console.log("Pool de conexões MySQL conectado!");
+        connection.release();
+    })
+    .catch(err => {
+        console.error("Erro ao conectar ao banco de dados no startup:", err);
+    });
 
 module.exports = db; // <-- Export the pool
