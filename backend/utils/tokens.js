@@ -49,8 +49,8 @@ async function saveRefreshToken(userId, token) {
 
     logger.info(`Refresh token salvo para usuário ${userId}`);
   } catch (error) {
-    logger.error('Erro ao salvar refresh token:', error);
-    throw error;
+    logger.error('Erro ao salvar refresh token (tabela pode não existir):', error.message);
+    // Não propaga o erro - permite que o login continue mesmo sem tabela de refresh tokens
   }
 }
 
@@ -101,8 +101,8 @@ async function revokeRefreshToken(token, replacedByToken = null) {
 
     logger.info('Refresh token revogado');
   } catch (error) {
-    logger.error('Erro ao revogar refresh token:', error);
-    throw error;
+    logger.error('Erro ao revogar refresh token (tabela pode não existir):', error.message);
+    // Não propaga o erro - permite que o logout continue mesmo sem tabela
   }
 }
 
@@ -123,8 +123,8 @@ async function cleanupExpiredTokens() {
 
     return deletedCount;
   } catch (error) {
-    logger.error('Erro ao limpar tokens expirados:', error);
-    throw error;
+    logger.error('Erro ao limpar tokens expirados (tabela pode não existir):', error.message);
+    return 0;
   }
 }
 
@@ -142,8 +142,8 @@ async function revokeAllUserTokens(userId) {
 
     logger.info(`Todos os tokens do usuário ${userId} foram revogados`);
   } catch (error) {
-    logger.error('Erro ao revogar tokens do usuário:', error);
-    throw error;
+    logger.error('Erro ao revogar tokens do usuário (tabela pode não existir):', error.message);
+    // Não propaga o erro
   }
 }
 
