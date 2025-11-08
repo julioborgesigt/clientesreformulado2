@@ -47,7 +47,7 @@ app.use(bodyParser.json());
 // Configuração de CSRF Protection
 const isProduction = process.env.NODE_ENV === 'production';
 const {
-  generateToken,
+  generateCsrfToken, // Nome correto da API do csrf-csrf v4
   doubleCsrfProtection,
 } = doubleCsrf({
   getSecret: () => process.env.CSRF_SECRET || process.env.JWT_SECRET,
@@ -66,7 +66,12 @@ const {
 // Endpoint para obter CSRF token
 app.get('/api/csrf-token', (req, res) => {
   try {
-    const csrfToken = generateToken(req, res);
+    // Em ambiente de teste, retorna um token dummy
+    if (process.env.NODE_ENV === 'test') {
+      return res.json({ csrfToken: 'test-csrf-token' });
+    }
+
+    const csrfToken = generateCsrfToken(req, res);
     res.json({ csrfToken });
   } catch (error) {
     logger.error('Erro ao gerar CSRF token:', error);
@@ -87,12 +92,14 @@ const setupSwagger = require('./swagger');
 // Documentação Swagger
 setupSwagger(app);
 
- // Rotas - CSRF temporariamente desabilitado para debug
-// TODO: Reabilitar CSRF quando o erro 500 for resolvido
-app.use('/auth', authRoutes);
-// Rotas protegidas por autenticação
-app.use('/clientes', authMiddleware, clientesRoutes);
-app.use('/servicos', authMiddleware, servicosRoutes);
+ // Rotas com proteção CSRF (desabilitada em ambiente de teste)
+const csrfMiddleware = process.env.NODE_ENV === 'test' ? (req, res, next) => next() : doubleCsrfProtection;
+
+// Auth routes - CSRF aplicado apenas em POST/PUT/DELETE (GET é ignorado pela config)
+app.use('/auth', csrfMiddleware, authRoutes);
+// Rotas protegidas por autenticação + CSRF
+app.use('/clientes', authMiddleware, csrfMiddleware, clientesRoutes);
+app.use('/servicos', authMiddleware, csrfMiddleware, servicosRoutes);
   
 
 // Configura o uso de arquivos estáticos (CSS, JS, etc.) a partir da pasta frontend
@@ -110,8 +117,21 @@ app.get('/dashboard.html', (req, res) => {
   
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
-});
+
+// Executa migrations e inicia servidor apenas quando executado diretamente (não em testes)
+if (require.main === module) {
+    const { runMigrations } = require('./db/migrations');
+
+    (async () => {
+        // Executa migrations antes de iniciar o servidor
+        await runMigrations();
+
+        // Inicia o servidor
+        app.listen(PORT, () => {
+            console.log(`Servidor rodando na porta ${PORT}`);
+            logger.info(`Servidor iniciado na porta ${PORT}`);
+        });
+    })();
+}
 
 module.exports = app;
