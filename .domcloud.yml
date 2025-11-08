@@ -1,0 +1,27 @@
+source: https://github.com/julioborgesigt/clientesreformulado2
+features:
+  - node lts
+
+nginx:
+  root: public_html/public
+  passenger:
+    enabled: "on"
+    app_start_command: env PORT=$PORT npm start
+
+commands:
+  - git pull origin claude/code-review-audit-011CUvzKWQsD8TKUxJ2o5iZf
+  - npm install
+  # Criar arquivo .env com as credenciais
+  - |
+    cat > .env << 'EOF'
+    DB_HOST=sao.domcloud.co
+    DB_USER=clientes
+    DB_PASS=WhmB_)b236_LZ1t7mU
+    DB_NAME=clientes_clientes
+    JWT_SECRET=d523fcd978702889c5ae06c8393483eeae6529166ef58ffe9abebcb73fb5f5f3e76a7f8e80facb41704753cc34d3d94a0d2dd4e9c45bf2a7f20d2790c5e1007f
+    PORT=3000
+    FRONTEND_URL=https://clientes.domcloud.dev
+    EOF
+  - chmod 600 .env
+  - mkdir -p tmp
+  - touch tmp/restart.txt
