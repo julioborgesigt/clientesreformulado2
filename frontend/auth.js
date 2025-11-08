@@ -5,7 +5,7 @@ let csrfToken = null;
 
 /**
  * Obtém o CSRF token do servidor
- * @returns {Promise<string>} CSRF token
+ * @returns {Promise<string|null>} CSRF token ou null se falhar
  */
 async function fetchCsrfToken() {
     try {
@@ -14,15 +14,16 @@ async function fetchCsrfToken() {
         });
 
         if (!response.ok) {
-            throw new Error('Falha ao obter CSRF token');
+            console.warn('CSRF token não disponível (código ' + response.status + '). Sistema continuará sem proteção CSRF.');
+            return null;
         }
 
         const data = await response.json();
         csrfToken = data.csrfToken;
         return csrfToken;
     } catch (error) {
-        console.error('Erro ao obter CSRF token:', error);
-        throw error;
+        console.warn('CSRF token não disponível. Sistema continuará sem proteção CSRF.', error);
+        return null;
     }
 }
 
@@ -44,12 +45,18 @@ async function refreshAccessToken() {
             await fetchCsrfToken();
         }
 
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+
+        // Adiciona CSRF token apenas se disponível
+        if (csrfToken) {
+            headers['x-csrf-token'] = csrfToken;
+        }
+
         const response = await fetch('/auth/refresh', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-csrf-token': csrfToken
-            },
+            headers,
             credentials: 'include',
             body: JSON.stringify({ refreshToken })
         });
@@ -165,14 +172,20 @@ function getAuthHeaders(contentType = 'application/json') {
 async function logout() {
     const refreshToken = localStorage.getItem('refreshToken');
 
-    if (refreshToken && csrfToken) {
+    if (refreshToken) {
         try {
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+
+            // Adiciona CSRF token apenas se disponível
+            if (csrfToken) {
+                headers['x-csrf-token'] = csrfToken;
+            }
+
             await fetch('/auth/logout', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-csrf-token': csrfToken
-                },
+                headers,
                 credentials: 'include',
                 body: JSON.stringify({ refreshToken })
             });
