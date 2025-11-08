@@ -5,9 +5,13 @@ const dotenv = require('dotenv');
 const path = require('path');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const logger = require('./utils/logger');
 
 dotenv.config();
 const app = express();
+
+// Logger HTTP middleware - deve vir antes das rotas
+app.use(logger.httpLogger);
 
 // Helmet - Headers de segurança
 app.use(helmet({
@@ -40,6 +44,10 @@ const authRoutes = require('./routes/auth');
 const clientesRoutes = require('./routes/clientes');
 const servicosRoutes = require('./routes/servicos');
 const authMiddleware = require('./middleware/authMiddleware');
+const setupSwagger = require('./swagger');
+
+// Documentação Swagger
+setupSwagger(app);
 
  // Rotas
 app.use('/auth', authRoutes);
