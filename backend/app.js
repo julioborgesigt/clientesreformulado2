@@ -6,7 +6,15 @@ const path = require('path'); // Importação do módulo path
 
 dotenv.config();
 const app = express();
-app.use(cors());
+
+// Configuração segura de CORS
+const corsOptions = {
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
+
 app.use(bodyParser.json());
 
 

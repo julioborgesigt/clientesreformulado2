@@ -742,7 +742,7 @@ window.sendWhatsAppMessage = async function(event, whatsapp, clientId) {
       return;
     }
     const vencimento = await getClientVencimento(clientId);
-nbsp;   if (!vencimento) {
+    if (!vencimento) {
       alert('Data de vencimento não encontrada.');
       return;
     }
