@@ -32,8 +32,25 @@ const globalLimiter = rateLimit({
 app.use(globalLimiter);
 
 // Configuração segura de CORS
+// Permite múltiplas origens (frontend Vue e frontend vanilla JS)
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173', // Vite dev server
+  'https://clientes.domcloud.dev',
+  'https://clientesvue-1.onrender.com',
+  process.env.FRONTEND_URL
+].filter(Boolean); // Remove valores undefined
+
 const corsOptions = {
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: function (origin, callback) {
+    // Permite requisições sem origin (como Postman, curl, etc.) ou origens permitidas
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      logger.warn(`CORS bloqueado para origem: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   optionsSuccessStatus: 200
 };
