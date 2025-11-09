@@ -12,6 +12,9 @@ const logger = require('./utils/logger');
 dotenv.config();
 const app = express();
 
+// Trust proxy - necessário quando atrás de proxy reverso (nginx, domcloud, etc)
+app.set('trust proxy', 1);
+
 // Logger HTTP middleware - deve vir antes das rotas
 app.use(logger.httpLogger);
 
@@ -43,17 +46,23 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin: function (origin, callback) {
+    logger.info(`[CORS] Requisição de origin: ${origin}`);
+    logger.info(`[CORS] Origens permitidas:`, allowedOrigins);
+
     // Permite requisições sem origin (como Postman, curl, etc.) ou origens permitidas
     if (!origin || allowedOrigins.includes(origin)) {
+      logger.info(`[CORS] Origin permitida: ${origin || 'sem origin'}`);
       callback(null, true);
     } else {
-      logger.warn(`CORS bloqueado para origem: ${origin}`);
+      logger.warn(`[CORS] BLOQUEADO - origem não permitida: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
   optionsSuccessStatus: 200
 };
+
+logger.info('[CORS] Configurando CORS com as seguintes origens:', allowedOrigins);
 app.use(cors(corsOptions));
 
 // Cookie parser - necessário para CSRF
@@ -66,8 +75,12 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 // Verifica se temos um secret válido
 const csrfSecret = process.env.CSRF_SECRET || process.env.JWT_SECRET;
+logger.info(`[CSRF] CSRF_SECRET definido: ${csrfSecret ? 'SIM (comprimento: ' + csrfSecret.length + ')' : 'NÃO'}`);
+logger.info(`[CSRF] JWT_SECRET definido: ${process.env.JWT_SECRET ? 'SIM' : 'NÃO'}`);
+logger.info(`[CSRF] NODE_ENV: ${process.env.NODE_ENV}`);
+
 if (!csrfSecret) {
-  logger.warn('CSRF_SECRET ou JWT_SECRET não definido. CSRF protection será desabilitada.');
+  logger.warn('[CSRF] CSRF_SECRET ou JWT_SECRET não definido. CSRF protection será desabilitada.');
 }
 
 let generateCsrfToken, doubleCsrfProtection;
@@ -85,6 +98,11 @@ try {
     },
     size: 64,
     ignoredMethods: ['GET', 'HEAD', 'OPTIONS'],
+    // Adiciona getSessionIdentifier para evitar erro
+    getSessionIdentifier: (req) => {
+      // Usa IP do usuário como identificador de sessão
+      return req.ip || req.connection.remoteAddress || 'unknown';
+    },
   });
 
   generateCsrfToken = csrfProtection.generateCsrfToken;
@@ -126,6 +144,7 @@ app.get('/api/csrf-token', (req, res) => {
     logger.info('[CSRF] Requisição para obter CSRF token');
     logger.info(`[CSRF] Origin: ${req.headers.origin}`);
     logger.info(`[CSRF] NODE_ENV: ${process.env.NODE_ENV}`);
+    logger.info(`[CSRF] Cookie header: ${req.headers.cookie ? 'presente' : 'ausente'}`);
 
     // Em ambiente de teste, retorna um token dummy
     if (process.env.NODE_ENV === 'test') {
@@ -133,11 +152,14 @@ app.get('/api/csrf-token', (req, res) => {
       return res.json({ csrfToken: 'test-csrf-token' });
     }
 
+    logger.info('[CSRF] Chamando generateCsrfToken...');
     const csrfToken = generateCsrfToken(req, res);
     logger.info(`[CSRF] Token gerado com sucesso: ${csrfToken.substring(0, 10)}...`);
+    logger.info(`[CSRF] Headers de resposta a serem enviados:`, res.getHeaders());
     res.json({ csrfToken });
   } catch (error) {
     logger.error('[CSRF] Erro ao gerar CSRF token:', error);
+    logger.error('[CSRF] Stack trace:', error.stack);
     // Retorna um token dummy ao invés de erro 500
     // Isso permite que o sistema continue funcionando sem CSRF
     logger.warn('[CSRF] Retornando token dummy - CSRF protection efetivamente desabilitada');
