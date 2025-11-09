@@ -78,10 +78,10 @@ try {
     // Usa nome simples de cookie (sem __Host-) para compatibilidade
     cookieName: 'x-csrf-token',
     cookieOptions: {
-      sameSite: 'lax', // 'lax' é mais compatível que 'strict'
+      sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'none',
       path: '/',
-      secure: isProduction,
-      httpOnly: false, // false permite que o JS acesse o cookie se necessário
+      secure: process.env.NODE_ENV !== 'development',
+      httpOnly: false,
     },
     size: 64,
     ignoredMethods: ['GET', 'HEAD', 'OPTIONS'],
