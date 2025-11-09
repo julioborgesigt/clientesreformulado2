@@ -9,7 +9,18 @@ const cookieParser = require('cookie-parser');
 const { doubleCsrf } = require('csrf-csrf');
 const logger = require('./utils/logger');
 
-dotenv.config();
+// Carrega variáveis de ambiente do arquivo .env na raiz do projeto
+// O path.join garante que funcione mesmo quando executado de backend/
+const envPath = path.join(__dirname, '..', '.env');
+const envResult = dotenv.config({ path: envPath });
+
+// Log para debug
+if (envResult.error) {
+  console.error(`❌ Erro ao carregar .env de ${envPath}:`, envResult.error.message);
+} else {
+  console.log(`✅ Arquivo .env carregado de: ${envPath}`);
+}
+
 const app = express();
 
 // Trust proxy - necessário quando atrás de proxy reverso (nginx, domcloud, etc)
