@@ -12,6 +12,9 @@ const logger = require('./utils/logger');
 dotenv.config();
 const app = express();
 
+// Trust proxy - necessário quando atrás de proxy reverso (nginx, domcloud, etc)
+app.set('trust proxy', 1);
+
 // Logger HTTP middleware - deve vir antes das rotas
 app.use(logger.httpLogger);
 
@@ -95,6 +98,11 @@ try {
     },
     size: 64,
     ignoredMethods: ['GET', 'HEAD', 'OPTIONS'],
+    // Adiciona getSessionIdentifier para evitar erro
+    getSessionIdentifier: (req) => {
+      // Usa IP do usuário como identificador de sessão
+      return req.ip || req.connection.remoteAddress || 'unknown';
+    },
   });
 
   generateCsrfToken = csrfProtection.generateCsrfToken;
