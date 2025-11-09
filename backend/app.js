@@ -88,9 +88,30 @@ try {
   });
 
   generateCsrfToken = csrfProtection.generateCsrfToken;
-  doubleCsrfProtection = csrfProtection.doubleCsrfProtection;
+  const originalDoubleCsrfProtection = csrfProtection.doubleCsrfProtection;
+
+  // Wrapper para adicionar logs
+  doubleCsrfProtection = (req, res, next) => {
+    logger.info(`[CSRF] Verificando CSRF para ${req.method} ${req.path}`);
+    logger.info(`[CSRF] Headers recebidos:`, {
+      'x-csrf-token': req.headers['x-csrf-token'],
+      'cookie': req.headers.cookie ? 'presente' : 'ausente',
+      'origin': req.headers.origin
+    });
+
+    originalDoubleCsrfProtection(req, res, (err) => {
+      if (err) {
+        logger.error(`[CSRF] Proteção CSRF bloqueou a requisição: ${err.message}`);
+        logger.error(`[CSRF] Detalhes:`, err);
+      } else {
+        logger.info(`[CSRF] Proteção CSRF passou - requisição autorizada`);
+      }
+      next(err);
+    });
+  };
 
   logger.info('CSRF protection configurada com sucesso');
+  logger.info(`CSRF cookieOptions: sameSite=${process.env.NODE_ENV === 'production' ? 'lax' : 'none'}, secure=${process.env.NODE_ENV !== 'development'}`);
 } catch (error) {
   logger.error('Erro ao configurar CSRF protection:', error);
   // Fallback: cria middleware dummy que não bloqueia nada
@@ -102,18 +123,24 @@ try {
 // Endpoint para obter CSRF token
 app.get('/api/csrf-token', (req, res) => {
   try {
+    logger.info('[CSRF] Requisição para obter CSRF token');
+    logger.info(`[CSRF] Origin: ${req.headers.origin}`);
+    logger.info(`[CSRF] NODE_ENV: ${process.env.NODE_ENV}`);
+
     // Em ambiente de teste, retorna um token dummy
     if (process.env.NODE_ENV === 'test') {
+      logger.info('[CSRF] Ambiente de teste - retornando token dummy');
       return res.json({ csrfToken: 'test-csrf-token' });
     }
 
     const csrfToken = generateCsrfToken(req, res);
+    logger.info(`[CSRF] Token gerado com sucesso: ${csrfToken.substring(0, 10)}...`);
     res.json({ csrfToken });
   } catch (error) {
-    logger.error('Erro ao gerar CSRF token:', error);
+    logger.error('[CSRF] Erro ao gerar CSRF token:', error);
     // Retorna um token dummy ao invés de erro 500
     // Isso permite que o sistema continue funcionando sem CSRF
-    logger.warn('Retornando token dummy - CSRF protection efetivamente desabilitada');
+    logger.warn('[CSRF] Retornando token dummy - CSRF protection efetivamente desabilitada');
     res.json({ csrfToken: 'csrf-disabled-due-to-error' });
   }
 });

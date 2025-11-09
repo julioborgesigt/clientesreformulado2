@@ -231,9 +231,18 @@ router.post('/login', [
         .notEmpty()
         .withMessage('Senha é obrigatória')
 ], async (req, res) => {
+    logger.info('[LOGIN] Requisição de login recebida');
+    logger.info(`[LOGIN] Headers:`, {
+        'x-csrf-token': req.headers['x-csrf-token'],
+        'authorization': req.headers['authorization'] ? 'presente' : 'ausente',
+        'origin': req.headers.origin,
+        'content-type': req.headers['content-type']
+    });
+
     // Verifica erros de validação
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+        logger.warn('[LOGIN] Validação falhou:', errors.array());
         return res.status(400).json({
             error: 'Dados inválidos',
             details: errors.array()
@@ -241,6 +250,7 @@ router.post('/login', [
     }
 
     const { email, password } = req.body;
+    logger.info(`[LOGIN] Tentativa de login para: ${email}`);
 
     try {
         // 1. Busca o usuário no banco
