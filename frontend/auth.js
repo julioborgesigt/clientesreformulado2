@@ -9,9 +9,13 @@ let csrfToken = null;
  */
 async function fetchCsrfToken() {
     try {
+        console.log('[CSRF] Buscando CSRF token do servidor...');
         const response = await fetch('/api/csrf-token', {
             credentials: 'include' // Importante para cookies
         });
+
+        console.log('[CSRF] Resposta:', response.status, response.statusText);
+        console.log('[CSRF] Headers da resposta:', Object.fromEntries(response.headers.entries()));
 
         if (!response.ok) {
             console.warn('CSRF token não disponível (código ' + response.status + '). Sistema continuará sem proteção CSRF.');
@@ -20,6 +24,8 @@ async function fetchCsrfToken() {
 
         const data = await response.json();
         csrfToken = data.csrfToken;
+        console.log('[CSRF] Token recebido:', csrfToken.substring(0, 10) + '...');
+        console.log('[CSRF] Cookies atuais:', document.cookie);
         return csrfToken;
     } catch (error) {
         console.warn('CSRF token não disponível. Sistema continuará sem proteção CSRF.', error);
@@ -91,12 +97,17 @@ async function refreshAccessToken() {
  * @returns {Promise<Response>} Resposta da requisição
  */
 async function authenticatedFetch(url, options = {}) {
+    console.log(`[AUTH] authenticatedFetch chamado para: ${options.method || 'GET'} ${url}`);
+
     // Garante que temos o CSRF token para requisições que precisam
     const needsCsrf = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(
         (options.method || 'GET').toUpperCase()
     );
 
+    console.log(`[AUTH] Precisa de CSRF: ${needsCsrf}`);
+
     if (needsCsrf && !csrfToken) {
+        console.log('[AUTH] CSRF token não disponível, buscando...');
         await fetchCsrfToken();
     }
 
@@ -110,7 +121,13 @@ async function authenticatedFetch(url, options = {}) {
     // Adiciona CSRF token se necessário
     if (needsCsrf && csrfToken) {
         headers['x-csrf-token'] = csrfToken;
+        console.log(`[AUTH] CSRF token adicionado ao header: ${csrfToken.substring(0, 10)}...`);
+    } else if (needsCsrf) {
+        console.warn('[AUTH] CSRF token não disponível para requisição que precisa dele!');
     }
+
+    console.log('[AUTH] Headers da requisição:', headers);
+    console.log('[AUTH] Cookies atuais:', document.cookie);
 
     // Faz a requisição inicial
     let response = await fetch(url, {
@@ -118,6 +135,8 @@ async function authenticatedFetch(url, options = {}) {
         headers,
         credentials: 'include'
     });
+
+    console.log(`[AUTH] Resposta: ${response.status} ${response.statusText}`);
 
     // Se recebeu 401, tenta renovar o token e refaz a requisição
     if (response.status === 401) {
