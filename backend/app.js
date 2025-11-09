@@ -102,9 +102,12 @@ try {
     // Usa nome simples de cookie (sem __Host-) para compatibilidade
     cookieName: 'x-csrf-token',
     cookieOptions: {
-      sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'none',
+      // CORREÇÃO: Usa 'none' para permitir cross-site (frontend Vue separado)
+      // 'lax' só funciona quando frontend e backend estão no mesmo domínio
+      sameSite: 'none',
       path: '/',
-      secure: process.env.NODE_ENV !== 'development',
+      // Secure deve ser true quando sameSite=none
+      secure: true,
       httpOnly: false,
     },
     size: 64,
@@ -140,7 +143,7 @@ try {
   };
 
   logger.info('CSRF protection configurada com sucesso');
-  logger.info(`CSRF cookieOptions: sameSite=${process.env.NODE_ENV === 'production' ? 'lax' : 'none'}, secure=${process.env.NODE_ENV !== 'development'}`);
+  logger.info(`CSRF cookieOptions: sameSite=none (cross-site enabled), secure=true`);
 } catch (error) {
   logger.error('Erro ao configurar CSRF protection:', error);
   // Fallback: cria middleware dummy que não bloqueia nada
