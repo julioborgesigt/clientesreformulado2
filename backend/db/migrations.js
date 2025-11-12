@@ -47,6 +47,55 @@ async function createRefreshTokensTable() {
 }
 
 /**
+ * Verifica se a coluna arquivado existe na tabela clientes
+ */
+async function checkArquivadoColumn() {
+    try {
+        const [columns] = await db.query(
+            "SHOW COLUMNS FROM clientes LIKE 'arquivado'"
+        );
+        return columns.length > 0;
+    } catch (error) {
+        logger.error('Erro ao verificar coluna arquivado:', error);
+        return false;
+    }
+}
+
+/**
+ * Adiciona a coluna arquivado à tabela clientes
+ */
+async function addArquivadoColumn() {
+    try {
+        logger.info('Adicionando coluna arquivado à tabela clientes...');
+
+        const sqlPath = path.join(__dirname, '../../database/migrations/add_arquivado_column.sql');
+        const sql = fs.readFileSync(sqlPath, 'utf8');
+
+        // Remove comentários SQL
+        const cleanSql = sql
+            .split('\n')
+            .filter(line => !line.trim().startsWith('--'))
+            .join('\n');
+
+        // Divide em statements individuais e executa cada um
+        const statements = cleanSql
+            .split(';')
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+
+        for (const statement of statements) {
+            await db.query(statement);
+        }
+
+        logger.info('✓ Coluna arquivado adicionada com sucesso');
+        return true;
+    } catch (error) {
+        logger.error('Erro ao adicionar coluna arquivado:', error);
+        return false;
+    }
+}
+
+/**
  * Executa todas as migrations necessárias
  */
 async function runMigrations() {
@@ -63,16 +112,28 @@ async function runMigrations() {
             logger.info('✓ Tabela refresh_tokens já existe');
         }
 
+        // Verifica e adiciona coluna arquivado se necessário
+        const columnExists = await checkArquivadoColumn();
+
+        if (!columnExists) {
+            logger.warn('Coluna arquivado não encontrada. Adicionando...');
+            await addArquivadoColumn();
+        } else {
+            logger.info('✓ Coluna arquivado já existe');
+        }
+
         logger.info('✓ Migrations concluídas');
     } catch (error) {
         logger.error('Erro ao executar migrations:', error);
         // Não interrompe a aplicação se migrations falharem
-        logger.warn('⚠ Aplicação continuará sem algumas funcionalidades (refresh tokens)');
+        logger.warn('⚠ Aplicação continuará sem algumas funcionalidades');
     }
 }
 
 module.exports = {
     runMigrations,
     checkRefreshTokensTable,
-    createRefreshTokensTable
+    createRefreshTokensTable,
+    checkArquivadoColumn,
+    addArquivadoColumn
 };
