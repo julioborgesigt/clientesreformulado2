@@ -98,14 +98,14 @@ async function updateClientStatusAndLog(req, res, status, actionType, logDetails
 router.put('/mark-pending/:id', (req, res) => { updateClientStatusAndLog(req, res, 'Não pagou', 'CHANGE_STATUS', (name, id, old, newStatus) => `Status do cliente "${name}" (ID: ${id}) alterado de "${old}" para "${newStatus}".`); });
 router.put('/mark-paid/:id', (req, res) => { updateClientStatusAndLog(req, res, 'cobrança feita', 'CHANGE_STATUS', (name, id, old, newStatus) => `Status do cliente "${name}" (ID: ${id}) alterado de "${old}" para "${newStatus}".`); });
 router.put('/mark-in-day/:id', (req, res) => { updateClientStatusAndLog(req, res, 'Pag. em dias', 'CHANGE_STATUS', (name, id, old, newStatus) => `Status do cliente "${name}" (ID: ${id}) alterado de "${old}" para "${newStatus}".`); });
-router.put('/adjust-date/:id', async (req, res) => { 
+router.put('/adjust-date/:id', async (req, res) => {
     const { id } = req.params;
     const { value, unit } = req.body; // value: ex: 1 ou -1, unit: 'DAY' ou 'MONTH'
-    
+
     // Validação da unidade
     let sqlUnit;
-    if (unit === 'DAY') sqlUnit = 'DAY'; 
-    else if (unit === 'MONTH') sqlUnit = 'MONTH'; 
+    if (unit === 'DAY') sqlUnit = 'DAY';
+    else if (unit === 'MONTH') sqlUnit = 'MONTH';
     else return res.status(400).json({ error: 'Unidade inválida.' });
 
     // Garante que 'value' é um número inteiro
@@ -117,8 +117,8 @@ router.put('/adjust-date/:id', async (req, res) => {
     try {
         // 1. Buscar dados atuais (data e status) ANTES da alteração
         const [currentData] = await db.query('SELECT vencimento, status, name FROM clientes WHERE id = ?', [id]);
-        if (currentData.length === 0) { 
-            return res.status(404).json({ error: 'Cliente não encontrado.' }); 
+        if (currentData.length === 0) {
+            return res.status(404).json({ error: 'Cliente não encontrado.' });
         }
         const originalClient = currentData[0];
         const originalDate = originalClient.vencimento ? new Date(originalClient.vencimento).toISOString().split('T')[0] : null;
@@ -127,7 +127,7 @@ router.put('/adjust-date/:id', async (req, res) => {
 
         // 2. Construir a query de atualização da data
         const updateDateQuery = `UPDATE clientes SET vencimento = DATE_ADD(vencimento, INTERVAL ? ${sqlUnit}) WHERE id = ?`;
-        
+
         // 3. Executar a atualização da data
         await db.query(updateDateQuery, [intervalValue, id]);
 
@@ -156,20 +156,97 @@ router.put('/adjust-date/:id', async (req, res) => {
           details += ` Status alterado de "${originalStatus}" para "${newStatus}".`;
         }
         // Guarda ambos os dados originais (data e status) para reversão
-        const originalLogData = { vencimento: originalDate, status: originalStatus }; 
+        const originalLogData = { vencimento: originalDate, status: originalStatus };
 
         // 6. Logar a ação
-        await logAction('ADJUST_DATE', id, details, null, true, originalLogData); 
-        
+        await logAction('ADJUST_DATE', id, details, null, true, originalLogData);
+
         // 7. Enviar resposta
-        res.status(200).json({ 
-            message: `Data ajustada com sucesso!${statusUpdated ? ' Status atualizado para "Pag. em dias".' : ''}`, 
-            vencimento: newDate 
+        res.status(200).json({
+            message: `Data ajustada com sucesso!${statusUpdated ? ' Status atualizado para "Pag. em dias".' : ''}`,
+            vencimento: newDate
         });
 
     } catch (err) {
         console.error('Erro ao ajustar a data:', err);
         res.status(500).json({ error: 'Erro ao ajustar a data.' });
+    }
+});
+
+// --- ROTAS DE ARQUIVAMENTO (SOFT DELETE) ---
+router.put('/archive/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        // Verifica se o cliente existe e obtém dados atuais
+        const [currentData] = await db.query('SELECT id, name, arquivado FROM clientes WHERE id = ?', [id]);
+        if (currentData.length === 0) {
+            return res.status(404).json({ error: 'Cliente não encontrado.' });
+        }
+
+        const cliente = currentData[0];
+
+        // Verifica se já está arquivado
+        if (cliente.arquivado) {
+            return res.status(400).json({ error: 'Cliente já está arquivado.' });
+        }
+
+        // Arquiva o cliente
+        await db.query('UPDATE clientes SET arquivado = TRUE WHERE id = ?', [id]);
+
+        // Registra a ação no log
+        await logAction('ARCHIVE_CLIENT', id, `Cliente "${cliente.name}" (ID: ${id}) foi arquivado.`, null, true, { arquivado: false });
+
+        console.log(`Cliente ID ${id} ("${cliente.name}") arquivado com sucesso.`);
+
+        res.status(200).json({
+            message: 'Cliente arquivado com sucesso',
+            cliente: {
+                id: cliente.id,
+                name: cliente.name,
+                arquivado: true
+            }
+        });
+    } catch (err) {
+        console.error('Erro ao arquivar cliente:', err);
+        res.status(500).json({ error: 'Erro ao arquivar cliente.' });
+    }
+});
+
+router.put('/unarchive/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        // Verifica se o cliente existe e obtém dados atuais
+        const [currentData] = await db.query('SELECT id, name, arquivado FROM clientes WHERE id = ?', [id]);
+        if (currentData.length === 0) {
+            return res.status(404).json({ error: 'Cliente não encontrado.' });
+        }
+
+        const cliente = currentData[0];
+
+        // Verifica se está arquivado
+        if (!cliente.arquivado) {
+            return res.status(400).json({ error: 'Cliente não está arquivado.' });
+        }
+
+        // Desarquiva o cliente
+        await db.query('UPDATE clientes SET arquivado = FALSE WHERE id = ?', [id]);
+
+        // Registra a ação no log
+        await logAction('UNARCHIVE_CLIENT', id, `Cliente "${cliente.name}" (ID: ${id}) foi desarquivado.`, null, true, { arquivado: true });
+
+        console.log(`Cliente ID ${id} ("${cliente.name}") desarquivado com sucesso.`);
+
+        res.status(200).json({
+            message: 'Cliente desarquivado com sucesso',
+            cliente: {
+                id: cliente.id,
+                name: cliente.name,
+                arquivado: false
+            }
+        });
+    } catch (err) {
+        console.error('Erro ao desarquivar cliente:', err);
+        res.status(500).json({ error: 'Erro ao desarquivar cliente.' });
     }
 });
 
@@ -212,20 +289,29 @@ router.post('/save-message-vencido', async (req, res) => { // <-- async
 
 // Rota GET /list (Convertida para async/await)
 // Rota GET /list (Já estava correta)
-router.get('/list', async (req, res) => { /* ... seu código async/await completo para /list ... */ 
+router.get('/list', async (req, res) => { /* ... seu código async/await completo para /list ... */
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit); 
-    const effectiveLimit = (!limit || limit === -1 || isNaN(limit)) ? 999999 : limit; 
-    const status = req.query.status || ''; 
+    const limit = parseInt(req.query.limit);
+    const effectiveLimit = (!limit || limit === -1 || isNaN(limit)) ? 999999 : limit;
+    const status = req.query.status || '';
     const search = req.query.search || '';
+    const showArchived = req.query.showArchived === 'true'; // Novo parâmetro
     const offset = (page - 1) * effectiveLimit;
     const today = new Date().toISOString().split('T')[0];
     const threeDays = new Date(); threeDays.setDate(threeDays.getDate() + 3);
     const threeDaysLater = threeDays.toISOString().split('T')[0];
     let whereClauses = []; let params = [];
+
+    // Filtro de arquivamento: Por padrão, mostra apenas não arquivados
+    if (showArchived) {
+        whereClauses.push('arquivado = TRUE');
+    } else {
+        whereClauses.push('arquivado = FALSE');
+    }
+
     if (search) { whereClauses.push('name LIKE ?'); params.push(`%${search}%`); }
-    if (status === 'vencidos') { whereClauses.push('vencimento < ?'); params.push(today); } 
-    else if (status === 'vence3') { whereClauses.push('vencimento >= ? AND vencimento <= ?'); params.push(today, threeDaysLater); } 
+    if (status === 'vencidos') { whereClauses.push('vencimento < ?'); params.push(today); }
+    else if (status === 'vence3') { whereClauses.push('vencimento >= ? AND vencimento <= ?'); params.push(today, threeDaysLater); }
     else if (status === 'emdias') { whereClauses.push('vencimento > ?'); params.push(threeDaysLater); }
     const whereString = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
     const dataQuery = `SELECT * FROM clientes ${whereString} ORDER BY vencimento ASC LIMIT ? OFFSET ?`;
@@ -233,14 +319,14 @@ router.get('/list', async (req, res) => { /* ... seu código async/await complet
     const countQuery = `SELECT COUNT(*) as totalCount FROM clientes ${whereString}`;
     const countParams = [...params];
     try {
-        const [[countResults], [dataResults]] = await Promise.all([ 
+        const [[countResults], [dataResults]] = await Promise.all([
             db.query(countQuery, countParams),
             db.query(dataQuery, dataParams)
         ]);
         const totalCount = countResults[0].totalCount;
         const formattedResults = dataResults.map(cliente => ({
             ...cliente,
-            vencimento: cliente.vencimento ? new Date(cliente.vencimento).toISOString().split('T')[0] : null 
+            vencimento: cliente.vencimento ? new Date(cliente.vencimento).toISOString().split('T')[0] : null
         }));
         res.status(200).json({ total: totalCount, page: page, limit: limit, data: formattedResults });
     } catch (err) {
@@ -250,34 +336,35 @@ router.get('/list', async (req, res) => { /* ... seu código async/await complet
 });
 
 // Rota GET /dashboard-stats (Query SQL Restaurada)
-router.get('/dashboard-stats', async (req, res) => { 
+router.get('/dashboard-stats', async (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
   const threeDays = new Date(); threeDays.setDate(threeDays.getDate() + 3);
   const threeDaysLater = threeDays.toISOString().slice(0, 10);
 
-  // --- QUERY SQL COMPLETA RESTAURADA ---
+  // --- QUERY SQL COMPLETA RESTAURADA (com filtro para excluir arquivados) ---
   const query = `
       SELECT
           SUM(custo) as custoTotal,
           SUM(CASE WHEN status != 'Não pagou' THEN valor_cobrado ELSE 0 END) as valorApurado,
           SUM(CASE WHEN status != 'Não pagou' THEN valor_cobrado - custo ELSE 0 END) as lucro,
-          SUM(CASE 
-                WHEN 
-                    status != 'Não pagou' 
-                    AND MONTH(vencimento) = MONTH(CURRENT_DATE()) 
-                    AND YEAR(vencimento) = YEAR(CURRENT_DATE()) 
-                THEN valor_cobrado 
-                ELSE 0 
+          SUM(CASE
+                WHEN
+                    status != 'Não pagou'
+                    AND MONTH(vencimento) = MONTH(CURRENT_DATE())
+                    AND YEAR(vencimento) = YEAR(CURRENT_DATE())
+                THEN valor_cobrado
+                ELSE 0
             END) as previsto,
           COUNT(*) as totalClientes,
           SUM(CASE WHEN vencimento < ? THEN 1 ELSE 0 END) as vencidos,
           SUM(CASE WHEN vencimento >= ? AND vencimento <= ? THEN 1 ELSE 0 END) as vence3,
           SUM(CASE WHEN vencimento > ? THEN 1 ELSE 0 END) as emdias
-      FROM clientes;
+      FROM clientes
+      WHERE arquivado = FALSE;
   `;
   // --- FIM DA QUERY ---
   try {
-      const [[results]] = await db.query(query, [today, today, threeDaysLater, threeDaysLater]); 
+      const [[results]] = await db.query(query, [today, today, threeDaysLater, threeDaysLater]);
       res.status(200).json(results);
   } catch (err) {
       console.error('Erro ao buscar estatísticas do dashboard:', err);
@@ -325,9 +412,10 @@ router.get('/get-message-vencido', async (req, res) => { // <-- async
 router.get('/pagamentos/dias', async (req, res) => { // <-- async
     const query = `
       SELECT DAY(vencimento) AS day, COUNT(*) AS count
-      FROM clientes WHERE vencimento IS NOT NULL
+      FROM clientes
+      WHERE vencimento IS NOT NULL AND arquivado = FALSE
       GROUP BY DAY(vencimento) ORDER BY day
-    `; // Adicionado WHERE para evitar erro com NULL
+    `; // Adicionado filtro para excluir arquivados
     try {
         const [results] = await db.query(query); // <-- await
         const payments = Array(31).fill(0);
@@ -342,18 +430,18 @@ router.get('/pagamentos/dias', async (req, res) => { // <-- async
 
 // Rota GET /stats/by-service (Convertida)
 // Rota GET /stats/by-service (Query SQL Restaurada)
-router.get('/stats/by-service', async (req, res) => { 
-    // --- QUERY SQL COMPLETA RESTAURADA ---
+router.get('/stats/by-service', async (req, res) => {
+    // --- QUERY SQL COMPLETA RESTAURADA (com filtro para excluir arquivados) ---
     const query = `
-        SELECT servico, COUNT(*) as count 
-        FROM clientes 
-        WHERE servico IS NOT NULL AND servico != '' 
-        GROUP BY servico 
+        SELECT servico, COUNT(*) as count
+        FROM clientes
+        WHERE servico IS NOT NULL AND servico != '' AND arquivado = FALSE
+        GROUP BY servico
         ORDER BY count DESC
     `;
     // --- FIM DA QUERY ---
     try {
-        const [results] = await db.query(query); 
+        const [results] = await db.query(query);
         const labels = results.map(row => row.servico);
         const data = results.map(row => row.count);
         res.status(200).json({ labels, data });
@@ -393,7 +481,7 @@ router.get('/alerts', async (req, res) => { // <-- async
     const threeDaysLater = new Date(today); threeDaysLater.setDate(today.getDate() + 3);
     try {
         const [results] = await db.query( // <-- await
-            'SELECT * FROM clientes WHERE vencimento BETWEEN ? AND ?',
+            'SELECT * FROM clientes WHERE vencimento BETWEEN ? AND ? AND arquivado = FALSE',
             [today.toISOString().slice(0, 10), threeDaysLater.toISOString().slice(0, 10)]
         );
         res.status(200).json(results);
@@ -503,6 +591,22 @@ router.post('/actions/:logId/revert', async (req, res) => {
                  // Nota: Se outras ações dependeram deste cliente criado, a reversão pode causar problemas.
                  break;
 
+            case 'ARCHIVE_CLIENT':
+                if (!originalData || typeof originalData.arquivado === 'undefined' || !logEntry.client_id) return res.status(500).json({ error: 'Dados originais ou ID do cliente ausentes para reverter arquivamento.' });
+                // Reverte o arquivamento para o estado original (FALSE)
+                await db.query('UPDATE clientes SET arquivado = ? WHERE id = ?', [originalData.arquivado, logEntry.client_id]);
+                revertDetails = `Arquivamento do cliente (ID: ${logEntry.client_id}) revertido (desarquivado).`;
+                revertSuccess = true;
+                break;
+
+            case 'UNARCHIVE_CLIENT':
+                if (!originalData || typeof originalData.arquivado === 'undefined' || !logEntry.client_id) return res.status(500).json({ error: 'Dados originais ou ID do cliente ausentes para reverter desarquivamento.' });
+                // Reverte o desarquivamento para o estado original (TRUE)
+                await db.query('UPDATE clientes SET arquivado = ? WHERE id = ?', [originalData.arquivado, logEntry.client_id]);
+                revertDetails = `Desarquivamento do cliente (ID: ${logEntry.client_id}) revertido (arquivado novamente).`;
+                revertSuccess = true;
+                break;
+
             default:
                 return res.status(400).json({ error: `Tipo de ação "${logEntry.action_type}" não suporta reversão.` });
         }
@@ -527,22 +631,23 @@ router.post('/actions/:logId/revert', async (req, res) => {
 // --- NOVA ROTA: Listar Clientes Pendentes do Mês Atual ---
 router.get('/pending-this-month', async (req, res) => {
     try {
-        // Query com os mesmos filtros usados no SUM do /dashboard-stats
+        // Query com os mesmos filtros usados no SUM do /dashboard-stats (excluindo arquivados)
         const query = `
-            SELECT id, name, vencimento, valor_cobrado, status 
-            FROM clientes 
-            WHERE 
-                status != 'Não pagou' 
-                AND MONTH(vencimento) = MONTH(CURRENT_DATE()) 
+            SELECT id, name, vencimento, valor_cobrado, status
+            FROM clientes
+            WHERE
+                status != 'Não pagou'
+                AND MONTH(vencimento) = MONTH(CURRENT_DATE())
                 AND YEAR(vencimento) = YEAR(CURRENT_DATE())
-            ORDER BY vencimento ASC; 
+                AND arquivado = FALSE
+            ORDER BY vencimento ASC;
         `;
         const [clients] = await db.query(query);
 
         // Formata a data antes de enviar (opcional, mas bom para consistência)
          const formattedClients = clients.map(client => ({
             ...client,
-            vencimento: client.vencimento ? new Date(client.vencimento).toISOString().split('T')[0] : null 
+            vencimento: client.vencimento ? new Date(client.vencimento).toISOString().split('T')[0] : null
         }));
 
         res.status(200).json(formattedClients); // Retorna a lista de clientes
