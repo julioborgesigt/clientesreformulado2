@@ -36,14 +36,45 @@ app.use(helmet({
 }));
 
 // Rate limiting global - proteção contra ataques de força bruta
+// Exclui requisições GET (leitura) e rotas de refresh token para não bloquear uso normal
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100, // Máximo de 100 requisições por IP a cada 15 minutos
+  max: 100, // Máximo de 100 requisições por IP a cada 15 minutos (apenas POST/PUT/DELETE)
   message: 'Muitas requisições deste IP, tente novamente após 15 minutos.',
   standardHeaders: true,
   legacyHeaders: false,
+  // Exclui requisições GET (leitura) e refresh token do rate limiting
+  skip: (req) => {
+    // Permite todas as requisições GET (leitura)
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      return true;
+    }
+    // Permite refresh token para não bloquear renovação de tokens
+    if (req.path === '/auth/refresh' || req.path.startsWith('/api/csrf-token')) {
+      return true;
+    }
+    return false;
+  }
 });
 app.use(globalLimiter);
+
+// Rate limiter mais permissivo para rotas autenticadas (aplicado após autenticação)
+// Isso permite mais ações para usuários autenticados
+const authenticatedLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 500, // Máximo de 500 requisições por IP a cada 15 minutos para rotas autenticadas
+  message: 'Muitas ações realizadas. Aguarde alguns minutos antes de continuar.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Aplica apenas em rotas autenticadas (será aplicado nas rotas específicas)
+  skip: (req) => {
+    // Não aplica em requisições GET (leitura)
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      return true;
+    }
+    return false;
+  }
+});
 
 // Configuração segura de CORS
 // Permite múltiplas origens (frontend Vue e frontend vanilla JS)
@@ -196,9 +227,10 @@ const csrfMiddleware = process.env.NODE_ENV === 'test' ? (req, res, next) => nex
 
 // Auth routes - CSRF aplicado apenas em POST/PUT/DELETE (GET é ignorado pela config)
 app.use('/auth', csrfMiddleware, authRoutes);
-// Rotas protegidas por autenticação + CSRF
-app.use('/clientes', authMiddleware, csrfMiddleware, clientesRoutes);
-app.use('/servicos', authMiddleware, csrfMiddleware, servicosRoutes);
+// Rotas protegidas por autenticação + CSRF + Rate limiter permissivo
+// O authenticatedLimiter permite mais ações para usuários autenticados (500 req/15min)
+app.use('/clientes', authMiddleware, authenticatedLimiter, csrfMiddleware, clientesRoutes);
+app.use('/servicos', authMiddleware, authenticatedLimiter, csrfMiddleware, servicosRoutes);
   
 
 // Configura o uso de arquivos estáticos (CSS, JS, etc.) a partir da pasta frontend
