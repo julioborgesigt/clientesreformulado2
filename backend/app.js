@@ -39,7 +39,7 @@ app.use(helmet({
 // Exclui requisições GET (leitura) e rotas de refresh token para não bloquear uso normal
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100, // Máximo de 100 requisições por IP a cada 15 minutos (apenas POST/PUT/DELETE)
+  max: 500, // Máximo de 500 requisições por IP a cada 15 minutos (apenas POST/PUT/DELETE)
   message: 'Muitas requisições deste IP, tente novamente após 15 minutos.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -62,7 +62,7 @@ app.use(globalLimiter);
 // Isso permite mais ações para usuários autenticados
 const authenticatedLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 500, // Máximo de 500 requisições por IP a cada 15 minutos para rotas autenticadas
+  max: 2000, // Máximo de 2000 requisições por IP a cada 15 minutos para rotas autenticadas
   message: 'Muitas ações realizadas. Aguarde alguns minutos antes de continuar.',
   standardHeaders: true,
   legacyHeaders: false,
