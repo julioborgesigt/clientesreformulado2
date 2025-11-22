@@ -3,6 +3,11 @@
 const jwt = require('jsonwebtoken');
 
 module.exports = (req, res, next) => {
+    // OPTIONS (preflight) sempre passa sem autenticação
+    if (req.method === 'OPTIONS') {
+        return next();
+    }
+    
     try {
         // Verifica se o cabeçalho Authorization existe
         const authHeader = req.headers.authorization;

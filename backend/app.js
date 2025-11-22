@@ -40,24 +40,31 @@ const allowedOrigins = [
 ].filter(Boolean); // Remove valores undefined
 
 // Middleware para garantir que requisições OPTIONS (preflight) sempre passem
-// DEVE VIR ANTES DE QUALQUER OUTRO MIDDLEWARE
+// DEVE VIR ANTES DE QUALQUER OUTRO MIDDLEWARE (exceto logger)
 app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
     const origin = req.headers.origin;
+    logger.info(`[CORS-PREFLIGHT] Requisição OPTIONS recebida de origin: ${origin}`);
+    logger.info(`[CORS-PREFLIGHT] Origens permitidas:`, allowedOrigins);
+    
     // Verifica se a origem está na lista permitida ou se não há origin (mesmo domínio)
     if (!origin || allowedOrigins.includes(origin)) {
       // Se há origin e está permitida, usa ela; caso contrário usa '*'
       const allowOrigin = origin && allowedOrigins.includes(origin) ? origin : '*';
-      res.header('Access-Control-Allow-Origin', allowOrigin);
-      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-csrf-token, X-Requested-With');
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Access-Control-Max-Age', '86400'); // 24 horas
-      logger.info(`[CORS] OPTIONS preflight permitido para origin: ${origin || 'sem origin'}`);
+      
+      // Define todos os headers CORS necessários
+      res.setHeader('Access-Control-Allow-Origin', allowOrigin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-csrf-token, X-Requested-With');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader('Access-Control-Max-Age', '86400'); // 24 horas
+      
+      logger.info(`[CORS-PREFLIGHT] OPTIONS permitido para origin: ${origin || 'sem origin'}, retornando 200`);
       return res.status(200).end();
     } else {
       // Origem não permitida
-      logger.warn(`[CORS] OPTIONS preflight BLOQUEADO para origin: ${origin}`);
+      logger.warn(`[CORS-PREFLIGHT] OPTIONS BLOQUEADO para origin: ${origin}`);
+      res.setHeader('Access-Control-Allow-Origin', '*');
       return res.status(403).end();
     }
   }
@@ -65,9 +72,12 @@ app.use((req, res, next) => {
 });
 
 // Helmet - Headers de segurança
+// IMPORTANTE: crossOriginResourcePolicy deve ser false para permitir CORS
 app.use(helmet({
   contentSecurityPolicy: false, // Desabilitar CSP para permitir inline scripts (ajuste conforme necessário)
-  crossOriginEmbedderPolicy: false
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false, // Permite CORS
+  crossOriginOpenerPolicy: false // Permite CORS
 }));
 
 // Configuração segura de CORS - DEVE VIR ANTES DO RATE LIMITING
@@ -184,8 +194,13 @@ try {
   generateCsrfToken = csrfProtection.generateCsrfToken;
   const originalDoubleCsrfProtection = csrfProtection.doubleCsrfProtection;
 
-  // Wrapper para adicionar logs
+  // Wrapper para adicionar logs e garantir que OPTIONS sempre passe
   doubleCsrfProtection = (req, res, next) => {
+    // OPTIONS (preflight) sempre passa sem verificação CSRF
+    if (req.method === 'OPTIONS') {
+      return next();
+    }
+    
     logger.info(`[CSRF] Verificando CSRF para ${req.method} ${req.path}`);
     logger.info(`[CSRF] Headers recebidos:`, {
       'x-csrf-token': req.headers['x-csrf-token'],
