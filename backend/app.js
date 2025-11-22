@@ -29,14 +29,7 @@ app.set('trust proxy', 1);
 // Logger HTTP middleware - deve vir antes das rotas
 app.use(logger.httpLogger);
 
-// Helmet - Headers de segurança
-app.use(helmet({
-  contentSecurityPolicy: false, // Desabilitar CSP para permitir inline scripts (ajuste conforme necessário)
-  crossOriginEmbedderPolicy: false
-}));
-
-// Configuração segura de CORS - DEVE VIR ANTES DO RATE LIMITING
-// Permite múltiplas origens (frontend Vue e frontend vanilla JS)
+// Lista de origens permitidas - definida antes para uso em múltiplos lugares
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173', // Vite dev server
@@ -45,6 +38,39 @@ const allowedOrigins = [
   'https://clientesvue-1.onrender.com',
   process.env.FRONTEND_URL
 ].filter(Boolean); // Remove valores undefined
+
+// Middleware para garantir que requisições OPTIONS (preflight) sempre passem
+// DEVE VIR ANTES DE QUALQUER OUTRO MIDDLEWARE
+app.use((req, res, next) => {
+  if (req.method === 'OPTIONS') {
+    const origin = req.headers.origin;
+    // Verifica se a origem está na lista permitida ou se não há origin (mesmo domínio)
+    if (!origin || allowedOrigins.includes(origin)) {
+      // Se há origin e está permitida, usa ela; caso contrário usa '*'
+      const allowOrigin = origin && allowedOrigins.includes(origin) ? origin : '*';
+      res.header('Access-Control-Allow-Origin', allowOrigin);
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-csrf-token, X-Requested-With');
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Max-Age', '86400'); // 24 horas
+      logger.info(`[CORS] OPTIONS preflight permitido para origin: ${origin || 'sem origin'}`);
+      return res.status(200).end();
+    } else {
+      // Origem não permitida
+      logger.warn(`[CORS] OPTIONS preflight BLOQUEADO para origin: ${origin}`);
+      return res.status(403).end();
+    }
+  }
+  next();
+});
+
+// Helmet - Headers de segurança
+app.use(helmet({
+  contentSecurityPolicy: false, // Desabilitar CSP para permitir inline scripts (ajuste conforme necessário)
+  crossOriginEmbedderPolicy: false
+}));
+
+// Configuração segura de CORS - DEVE VIR ANTES DO RATE LIMITING
 
 const corsOptions = {
   origin: function (origin, callback) {
@@ -61,7 +87,10 @@ const corsOptions = {
     }
   },
   credentials: true,
-  optionsSuccessStatus: 200
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-csrf-token', 'X-Requested-With'],
+  exposedHeaders: ['x-csrf-token']
 };
 
 logger.info('[CORS] Configurando CORS com as seguintes origens:', allowedOrigins);
