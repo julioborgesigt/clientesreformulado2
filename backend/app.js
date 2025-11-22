@@ -35,53 +35,13 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 
-// Rate limiting global - proteção contra ataques de força bruta
-// Exclui requisições GET (leitura) e rotas de refresh token para não bloquear uso normal
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 500, // Máximo de 500 requisições por IP a cada 15 minutos (apenas POST/PUT/DELETE)
-  message: 'Muitas requisições deste IP, tente novamente após 15 minutos.',
-  standardHeaders: true,
-  legacyHeaders: false,
-  // Exclui requisições GET (leitura) e refresh token do rate limiting
-  skip: (req) => {
-    // Permite todas as requisições GET (leitura)
-    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
-      return true;
-    }
-    // Permite refresh token para não bloquear renovação de tokens
-    if (req.path === '/auth/refresh' || req.path.startsWith('/api/csrf-token')) {
-      return true;
-    }
-    return false;
-  }
-});
-app.use(globalLimiter);
-
-// Rate limiter mais permissivo para rotas autenticadas (aplicado após autenticação)
-// Isso permite mais ações para usuários autenticados
-const authenticatedLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 2000, // Máximo de 2000 requisições por IP a cada 15 minutos para rotas autenticadas
-  message: 'Muitas ações realizadas. Aguarde alguns minutos antes de continuar.',
-  standardHeaders: true,
-  legacyHeaders: false,
-  // Aplica apenas em rotas autenticadas (será aplicado nas rotas específicas)
-  skip: (req) => {
-    // Não aplica em requisições GET (leitura)
-    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
-      return true;
-    }
-    return false;
-  }
-});
-
-// Configuração segura de CORS
+// Configuração segura de CORS - DEVE VIR ANTES DO RATE LIMITING
 // Permite múltiplas origens (frontend Vue e frontend vanilla JS)
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5173', // Vite dev server
   'https://clientes.domcloud.dev',
+  'https://clientesvue.domcloud.dev', // Frontend Vue no DomCloud
   'https://clientesvue-1.onrender.com',
   process.env.FRONTEND_URL
 ].filter(Boolean); // Remove valores undefined
@@ -106,6 +66,48 @@ const corsOptions = {
 
 logger.info('[CORS] Configurando CORS com as seguintes origens:', allowedOrigins);
 app.use(cors(corsOptions));
+
+// Rate limiting global - proteção contra ataques de força bruta
+// DEVE VIR DEPOIS DO CORS para não bloquear requisições OPTIONS (preflight)
+// Exclui requisições GET (leitura) e rotas de refresh token para não bloquear uso normal
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 500, // Máximo de 500 requisições por IP a cada 15 minutos (apenas POST/PUT/DELETE)
+  message: 'Muitas requisições deste IP, tente novamente após 15 minutos.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Exclui requisições GET (leitura) e refresh token do rate limiting
+  skip: (req) => {
+    // Permite todas as requisições GET (leitura)
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      return true;
+    }
+    // Permite refresh token e CSRF token para não bloquear renovação de tokens
+    if (req.path === '/auth/refresh' || req.path === '/api/csrf-token' || req.path.startsWith('/api/csrf-token')) {
+      return true;
+    }
+    return false;
+  }
+});
+app.use(globalLimiter);
+
+// Rate limiter mais permissivo para rotas autenticadas (aplicado após autenticação)
+// Isso permite mais ações para usuários autenticados
+const authenticatedLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 2000, // Máximo de 2000 requisições por IP a cada 15 minutos para rotas autenticadas
+  message: 'Muitas ações realizadas. Aguarde alguns minutos antes de continuar.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Aplica apenas em rotas autenticadas (será aplicado nas rotas específicas)
+  skip: (req) => {
+    // Não aplica em requisições GET (leitura)
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') {
+      return true;
+    }
+    return false;
+  }
+});
 
 // Cookie parser - necessário para CSRF
 app.use(cookieParser());
