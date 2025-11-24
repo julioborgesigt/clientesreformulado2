@@ -21,6 +21,11 @@ if (envResult.error) {
   console.log(`✅ Arquivo .env carregado de: ${envPath}`);
 }
 
+// 🔒 SEGURANÇA: Valida variáveis de ambiente ANTES de iniciar app
+// Fail-fast: Previne inicialização com configuração incorreta
+const { validateOrExit } = require('./config/validateEnv');
+validateOrExit();
+
 const app = express();
 
 // Trust proxy - necessário quando atrás de proxy reverso (nginx, domcloud, etc)
@@ -71,13 +76,38 @@ app.use((req, res, next) => {
   next();
 });
 
-// Helmet - Headers de segurança
-// IMPORTANTE: crossOriginResourcePolicy deve ser false para permitir CORS
+// 🔒 Helmet - Headers de segurança (CSP ATIVADA)
 app.use(helmet({
-  contentSecurityPolicy: false, // Desabilitar CSP para permitir inline scripts (ajuste conforme necessário)
-  crossOriginEmbedderPolicy: false,
+  // 🔒 SEGURANÇA: CSP ativada (antes estava false)
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"], // API backend não serve scripts
+      styleSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: [
+        "'self'",
+        "https://clientes.domcloud.dev",
+        "https://clientesvue.domcloud.dev",
+        "https://clientesvue-1.onrender.com"
+      ],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      upgradeInsecureRequests: [] // Force HTTPS
+    }
+  },
+  crossOriginEmbedderPolicy: false, // Permite CORS
   crossOriginResourcePolicy: false, // Permite CORS
-  crossOriginOpenerPolicy: false // Permite CORS
+  crossOriginOpenerPolicy: false, // Permite CORS
+  // 🔒 HSTS: Force HTTPS por 1 ano
+  hsts: {
+    maxAge: 31536000, // 1 ano em segundos
+    includeSubDomains: true,
+    preload: true
+  }
 }));
 
 // Configuração segura de CORS - DEVE VIR ANTES DO RATE LIMITING
@@ -156,21 +186,34 @@ app.use(bodyParser.json());
 // Configuração de CSRF Protection
 const isProduction = process.env.NODE_ENV === 'production';
 
-// Verifica se temos um secret válido
+// 🔒 SEGURANÇA: Verifica se temos um secret válido (OBRIGATÓRIO em produção)
 const csrfSecret = process.env.CSRF_SECRET || process.env.JWT_SECRET;
 logger.info(`[CSRF] CSRF_SECRET definido: ${csrfSecret ? 'SIM (comprimento: ' + csrfSecret.length + ')' : 'NÃO'}`);
 logger.info(`[CSRF] JWT_SECRET definido: ${process.env.JWT_SECRET ? 'SIM' : 'NÃO'}`);
 logger.info(`[CSRF] NODE_ENV: ${process.env.NODE_ENV}`);
 
+// 🔒 SEGURANÇA: Falha imediatamente se CSRF_SECRET não estiver definido em produção
+if (!csrfSecret && isProduction) {
+  logger.error('❌ CSRF_SECRET ou JWT_SECRET OBRIGATÓRIO em produção!');
+  logger.error('❌ Configure CSRF_SECRET no arquivo .env antes de iniciar em produção.');
+  process.exit(1); // Fail-fast: não inicia sem secret em produção
+}
+
 if (!csrfSecret) {
-  logger.warn('[CSRF] CSRF_SECRET ou JWT_SECRET não definido. CSRF protection será desabilitada.');
+  logger.warn('[CSRF] ⚠️ CSRF_SECRET não definido em ambiente de desenvolvimento. CSRF protection será limitada.');
 }
 
 let generateCsrfToken, doubleCsrfProtection;
 
 try {
   const csrfProtection = doubleCsrf({
-    getSecret: () => csrfSecret || 'fallback-secret-change-in-production',
+    // 🔒 SEGURANÇA: Sem fallback - falha se secret não estiver definido
+    getSecret: () => {
+      if (!csrfSecret) {
+        throw new Error('CSRF_SECRET ou JWT_SECRET não definido!');
+      }
+      return csrfSecret;
+    },
     // Usa nome simples de cookie (sem __Host-) para compatibilidade
     cookieName: 'x-csrf-token',
     cookieOptions: {
@@ -262,11 +305,18 @@ app.get('/api/csrf-token', (req, res) => {
 const authRoutes = require('./routes/auth');
 const clientesRoutes = require('./routes/clientes');
 const servicosRoutes = require('./routes/servicos');
+const healthRoutes = require('./routes/health');
+const backupRoutes = require('./routes/backup');
 const authMiddleware = require('./middleware/authMiddleware');
 const setupSwagger = require('./swagger');
+const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
+const { startAutoBackup } = require('./services/backupService');
 
 // Documentação Swagger
 setupSwagger(app);
+
+// 🏥 Health check routes (SEM autenticação/CSRF - disponível para monitoramento)
+app.use('/health', healthRoutes);
 
  // Rotas com proteção CSRF (desabilitada em ambiente de teste)
 const csrfMiddleware = process.env.NODE_ENV === 'test' ? (req, res, next) => next() : doubleCsrfProtection;
@@ -277,31 +327,69 @@ app.use('/auth', csrfMiddleware, authRoutes);
 // O authenticatedLimiter permite mais ações para usuários autenticados (500 req/15min)
 app.use('/clientes', authMiddleware, authenticatedLimiter, csrfMiddleware, clientesRoutes);
 app.use('/servicos', authMiddleware, authenticatedLimiter, csrfMiddleware, servicosRoutes);
+// 📦 Backup routes (requer autenticação - TODO: adicionar middleware de admin)
+app.use('/backup', authMiddleware, authenticatedLimiter, csrfMiddleware, backupRoutes);
   
 
-// Configura o uso de arquivos estáticos (CSS, JS, etc.) a partir da pasta frontend
-app.use(express.static(path.join(__dirname, '../frontend')));
-
-// Rota para a página principal
+// API Health check endpoint
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend', 'index.html')); // Caminho para o index.html
+  res.json({
+    status: 'ok',
+    message: 'API de Gestão de Clientes - Backend',
+    version: '1.0.0',
+    endpoints: {
+      docs: '/api/docs',
+      auth: '/auth',
+      clientes: '/clientes',
+      servicos: '/servicos'
+    }
+  });
 });
 
-// Rota para a página principal
-app.get('/dashboard.html', (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend', 'dashboard.html')); // Caminho para o dashboard.html
-  });
-  
+// ========================================
+// MIDDLEWARE DE TRATAMENTO DE ERROS
+// DEVE SER O ÚLTIMO MIDDLEWARE REGISTRADO
+// ========================================
+
+// 404 - Rota não encontrada
+app.use(notFoundHandler);
+
+// Handler centralizado de erros
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 3000;
 
 // Executa migrations e inicia servidor apenas quando executado diretamente (não em testes)
 if (require.main === module) {
     const { runMigrations } = require('./db/migrations');
+    const { cleanupExpiredTokens } = require('./utils/tokens');
 
     (async () => {
         // Executa migrations antes de iniciar o servidor
         await runMigrations();
+
+        // 🔒 SEGURANÇA: Limpeza inicial de tokens expirados
+        try {
+            const deletedCount = await cleanupExpiredTokens();
+            logger.info(`🧹 Limpeza inicial de tokens: ${deletedCount} tokens removidos`);
+        } catch (error) {
+            logger.error('❌ Erro na limpeza inicial de tokens:', error);
+        }
+
+        // 🔒 SEGURANÇA: Agendar limpeza automática a cada 24 horas
+        setInterval(async () => {
+            try {
+                const deletedCount = await cleanupExpiredTokens();
+                logger.info(`🧹 Limpeza automática: ${deletedCount} tokens expirados removidos`);
+            } catch (error) {
+                logger.error('❌ Erro na limpeza automática de tokens:', error);
+            }
+        }, 24 * 60 * 60 * 1000); // 24 horas em millisegundos
+
+        logger.info('✅ Limpeza automática de tokens agendada (a cada 24h)');
+
+        // 📦 BOA PRÁTICA: Inicia sistema de backup automático
+        startAutoBackup();
 
         // Inicia o servidor
         app.listen(PORT, () => {

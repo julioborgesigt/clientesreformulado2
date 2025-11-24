@@ -1,138 +1,69 @@
 const express = require('express');
-const { body, param, query, validationResult } = require('express-validator');
 // Importa a conexão (que já tem .promise() ativado em connection.js)
-const db = require('../db/connection');
-const { TIME_UNITS, DEFAULT_VALOR_COBRADO, DEFAULT_CUSTO } = require('../constants');
-const { logAction } = require('../utils/actionLog');
+const db = require('../db/connection'); 
 const router = express.Router();
 
-// --- ROTAS POST, PUT, DELETE + SEGURANÇA: Filtro user_id ---
-router.post('/add', [
-    // Validações
-    body('name')
-        .trim()
-        .isLength({ min: 2, max: 100 })
-        .withMessage('Nome deve ter entre 2 e 100 caracteres'),
-    body('vencimento')
-        .optional()
-        .isISO8601()
-        .withMessage('Data de vencimento inválida'),
-    body('servico')
-        .trim()
-        .notEmpty()
-        .withMessage('Serviço é obrigatório'),
-    body('whatsapp')
-        .optional()
-        .trim()
-        .matches(/^[0-9]{10,15}$/)
-        .withMessage('WhatsApp deve conter 10-15 dígitos'),
-    body('valor_cobrado')
-        .optional()
-        .isFloat({ min: 0 })
-        .withMessage('Valor cobrado deve ser um número positivo'),
-    body('custo')
-        .optional()
-        .isFloat({ min: 0 })
-        .withMessage('Custo deve ser um número positivo')
-], async (req, res) => {
-    // Verifica erros de validação
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({
-            error: 'Dados inválidos',
-            details: errors.array()
-        });
-    }
+// Função helper para registrar logs (sem alterações)
+async function logAction(actionType, clientId = null, details = null, userId = null, revertable = false, originalData = null) {
+  try {
+    const query = `
+      INSERT INTO action_log (action_type, client_id, details, user_id, revertable, original_data) 
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
+    const originalDataJson = originalData ? JSON.stringify(originalData) : null;
+    await db.query(query, [actionType, clientId, details, userId, revertable, originalDataJson]);
+    console.log(`Ação registrada: ${actionType} - Cliente ID: ${clientId}`);
+  } catch (error) {
+    console.error('Erro ao registrar ação no log:', error);
+  }
+}
 
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
+// --- ROTAS POST, PUT, DELETE (Já estavam corretas com async/await) ---
+router.post('/add', async (req, res) => { /* ... seu código async/await ... */ 
     const { name, vencimento, servico, whatsapp, observacoes, valor_cobrado, custo } = req.body;
-    const valorCobrado = valor_cobrado ? parseFloat(valor_cobrado) : DEFAULT_VALOR_COBRADO;
-    const custoValor = custo ? parseFloat(custo) : DEFAULT_CUSTO;
+    const valorCobrado = valor_cobrado ? parseFloat(valor_cobrado) : 15.00;
+    const custoValor = custo ? parseFloat(custo) : 6.00;
     try {
-        // 🔒 SEGURANÇA: Inclui user_id no INSERT
         const [results] = await db.query(
-            'INSERT INTO clientes (name, vencimento, servico, whatsapp, observacoes, valor_cobrado, custo, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            [name, vencimento, servico, whatsapp, observacoes, valorCobrado, custoValor, userId]
+            'INSERT INTO clientes (name, vencimento, servico, whatsapp, observacoes, valor_cobrado, custo) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [name, vencimento, servico, whatsapp, observacoes, valorCobrado, custoValor]
         );
         const newClientId = results.insertId;
-        await logAction('CREATE_CLIENT', newClientId, `Cliente "${name}" criado.`, userId);
+        await logAction('CREATE_CLIENT', newClientId, `Cliente "${name}" criado.`); 
         res.status(201).json({ message: 'Cliente adicionado com sucesso!' });
     } catch (err) {
         console.error('Erro ao adicionar cliente:', err);
         res.status(500).json({ error: 'Erro ao adicionar cliente' });
     }
 });
-router.delete('/delete/:id', [
-    param('id').isInt().withMessage('ID deve ser um número inteiro')
-], async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Dados inválidos', details: errors.array() });
-    }
-
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
+router.delete('/delete/:id', async (req, res) => { /* ... seu código async/await ... */ 
     const { id } = req.params;
     try {
-        // 🔒 SEGURANÇA: Verifica se o cliente pertence ao usuário
-        const [clientData] = await db.query('SELECT * FROM clientes WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [id, userId]);
+        const [clientData] = await db.query('SELECT * FROM clientes WHERE id = ?', [id]);
         if (clientData.length === 0) {
-          return res.status(404).json({ error: 'Cliente não encontrado ou você não tem permissão para excluí-lo.' });
+          return res.status(404).json({ error: 'Cliente não encontrado para exclusão.' });
         }
         const originalClient = clientData[0];
-        // 📦 BOA PRÁTICA: Soft delete - marca como deletado ao invés de remover permanentemente
-        await db.query('UPDATE clientes SET deleted_at = NOW() WHERE id = ? AND user_id = ?', [id, userId]);
-        await logAction('DELETE_CLIENT', id, `Cliente "${originalClient.name}" (ID: ${id}) excluído (soft delete).`, userId, true, originalClient);
+        await db.query('DELETE FROM clientes WHERE id = ?', [id]);
+        await logAction('DELETE_CLIENT', id, `Cliente "${originalClient.name}" (ID: ${id}) excluído.`, null, true, originalClient); 
         res.status(200).json({ message: 'Cliente excluído com sucesso!' });
     } catch (err) {
         console.error('Erro ao excluir cliente:', err);
         res.status(500).json({ error: 'Erro ao excluir cliente' });
     }
 });
-router.put('/update/:id', [
-    param('id').isInt().withMessage('ID deve ser um número inteiro'),
-    body('name')
-        .trim()
-        .isLength({ min: 2, max: 100 })
-        .withMessage('Nome deve ter entre 2 e 100 caracteres'),
-    body('vencimento')
-        .optional()
-        .isISO8601()
-        .withMessage('Data de vencimento inválida'),
-    body('servico')
-        .trim()
-        .notEmpty()
-        .withMessage('Serviço é obrigatório'),
-    body('whatsapp')
-        .optional()
-        .trim(),
-    body('valor_cobrado')
-        .optional()
-        .isFloat({ min: 0 })
-        .withMessage('Valor cobrado deve ser um número positivo'),
-    body('custo')
-        .optional()
-        .isFloat({ min: 0 })
-        .withMessage('Custo deve ser um número positivo')
-], async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Dados inválidos', details: errors.array() });
-    }
-
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
+router.put('/update/:id', async (req, res) => { /* ... seu código async/await ... */ 
     const clientId = req.params.id;
     const { name, vencimento, servico, whatsapp, observacoes, valor_cobrado, custo } = req.body;
     try {
-        // 🔒 SEGURANÇA: Verifica se o cliente pertence ao usuário (excluindo soft deleted)
-        const [currentData] = await db.query('SELECT * FROM clientes WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [clientId, userId]);
+        const [currentData] = await db.query('SELECT * FROM clientes WHERE id = ?', [clientId]);
         if (currentData.length === 0) {
-          return res.status(404).json({ error: 'Cliente não encontrado ou você não tem permissão para atualizá-lo.' });
+          return res.status(404).json({ error: 'Cliente não encontrado para atualização.' });
         }
         const originalClient = currentData[0];
-        // 🔒 SEGURANÇA: Update apenas se pertence ao usuário
-        const query = `UPDATE clientes SET name = ?, vencimento = ?, servico = ?, whatsapp = ?, observacoes = ?, valor_cobrado = ?, custo = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL`;
+        const query = `UPDATE clientes SET name = ?, vencimento = ?, servico = ?, whatsapp = ?, observacoes = ?, valor_cobrado = ?, custo = ? WHERE id = ?`;
         const formattedVencimento = vencimento ? new Date(vencimento).toISOString().split('T')[0] : null;
-        await db.query(query, [name, formattedVencimento, servico, whatsapp, observacoes, valor_cobrado, custo, clientId, userId]);
+        await db.query(query, [name, formattedVencimento, servico, whatsapp, observacoes, valor_cobrado, custo, clientId]);
         let details = `Cliente "${name}" (ID: ${clientId}) atualizado.`;
         const changes = [];
         if (originalClient.name !== name) changes.push(`Nome: '${originalClient.name}' -> '${name}'`);
@@ -140,27 +71,24 @@ router.put('/update/:id', [
         if (originalVencimento !== formattedVencimento) changes.push(`Vencimento: '${originalVencimento}' -> '${formattedVencimento}'`);
         if (originalClient.servico !== servico) changes.push(`Serviço: '${originalClient.servico}' -> '${servico}'`);
         if (changes.length > 0) { details += ` Mudanças: ${changes.join(', ')}.`; }
-        await logAction('UPDATE_CLIENT', clientId, details, userId, true, originalClient);
+        await logAction('UPDATE_CLIENT', clientId, details, null, true, originalClient); 
         res.status(200).json({ message: 'Cliente atualizado com sucesso!' });
     } catch (err) {
         console.error('Erro ao atualizar cliente:', err);
         res.status(500).json({ error: 'Erro ao atualizar cliente.' });
     }
 });
-async function updateClientStatusAndLog(req, res, status, actionType, logDetails) {
-  const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
+async function updateClientStatusAndLog(req, res, status, actionType, logDetails) { /* ... seu código async/await ... */ 
   const { id } = req.params;
   try {
-     // 🔒 SEGURANÇA: Verifica se o cliente pertence ao usuário
-     const [currentData] = await db.query('SELECT status, name FROM clientes WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [id, userId]);
-     if (currentData.length === 0) { return res.status(404).json({ error: 'Cliente não encontrado ou você não tem permissão.' }); }
+     const [currentData] = await db.query('SELECT status, name FROM clientes WHERE id = ?', [id]);
+     if (currentData.length === 0) { return res.status(404).json({ error: 'Cliente não encontrado.' }); }
      const originalStatus = currentData[0].status;
      const clientName = currentData[0].name;
      if (originalStatus === status) { return res.status(200).json({ message: `Cliente já está com status "${status}".` }); }
-    // 🔒 SEGURANÇA: Update apenas se pertence ao usuário
-    await db.query('UPDATE clientes SET status = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [status, id, userId]);
+    await db.query('UPDATE clientes SET status = ? WHERE id = ?', [status, id]);
     const details = logDetails ? logDetails(clientName, id, originalStatus, status) : `Status do cliente "${clientName}" (ID: ${id}) alterado para "${status}".`;
-    await logAction(actionType, id, details, userId, true, { status: originalStatus });
+    await logAction(actionType, id, details, null, true, { status: originalStatus }); 
     res.status(200).json({ message: `Status do cliente atualizado para "${status}".` });
   } catch (err) {
     console.error(`Erro ao marcar status como ${status}:`, err);
@@ -170,26 +98,25 @@ async function updateClientStatusAndLog(req, res, status, actionType, logDetails
 router.put('/mark-pending/:id', (req, res) => { updateClientStatusAndLog(req, res, 'Não pagou', 'CHANGE_STATUS', (name, id, old, newStatus) => `Status do cliente "${name}" (ID: ${id}) alterado de "${old}" para "${newStatus}".`); });
 router.put('/mark-paid/:id', (req, res) => { updateClientStatusAndLog(req, res, 'cobrança feita', 'CHANGE_STATUS', (name, id, old, newStatus) => `Status do cliente "${name}" (ID: ${id}) alterado de "${old}" para "${newStatus}".`); });
 router.put('/mark-in-day/:id', (req, res) => { updateClientStatusAndLog(req, res, 'Pag. em dias', 'CHANGE_STATUS', (name, id, old, newStatus) => `Status do cliente "${name}" (ID: ${id}) alterado de "${old}" para "${newStatus}".`); });
-router.put('/adjust-date/:id', [
-    param('id').isInt().withMessage('ID deve ser um número inteiro'),
-    body('value').isInt().withMessage('Value deve ser um número inteiro'),
-    body('unit').isIn(['DAY', 'MONTH']).withMessage('Unit deve ser DAY ou MONTH')
-], async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-        return res.status(400).json({ error: 'Dados inválidos', details: errors.array() });
-    }
-
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
+router.put('/adjust-date/:id', async (req, res) => {
     const { id } = req.params;
     const { value, unit } = req.body; // value: ex: 1 ou -1, unit: 'DAY' ou 'MONTH'
 
-    const sqlUnit = unit; // Já validado pelo express-validator
+    // Validação da unidade
+    let sqlUnit;
+    if (unit === 'DAY') sqlUnit = 'DAY';
+    else if (unit === 'MONTH') sqlUnit = 'MONTH';
+    else return res.status(400).json({ error: 'Unidade inválida.' });
+
+    // Garante que 'value' é um número inteiro
     const intervalValue = parseInt(value);
+    if (isNaN(intervalValue)) {
+        return res.status(400).json({ error: 'Valor do intervalo inválido.' });
+    }
 
     try {
-        // 🔒 SEGURANÇA: Buscar dados atuais verificando user_id
-        const [currentData] = await db.query('SELECT vencimento, status, name FROM clientes WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [id, userId]);
+        // 1. Buscar dados atuais (data e status) ANTES da alteração
+        const [currentData] = await db.query('SELECT vencimento, status, name FROM clientes WHERE id = ?', [id]);
         if (currentData.length === 0) {
             return res.status(404).json({ error: 'Cliente não encontrado.' });
         }
@@ -198,11 +125,11 @@ router.put('/adjust-date/:id', [
         const originalStatus = originalClient.status;
         const clientName = originalClient.name;
 
-        // 🔒 SEGURANÇA: Construir a query de atualização da data com user_id
-        const updateDateQuery = `UPDATE clientes SET vencimento = DATE_ADD(vencimento, INTERVAL ? ${sqlUnit}) WHERE id = ? AND user_id = ? AND deleted_at IS NULL`;
+        // 2. Construir a query de atualização da data
+        const updateDateQuery = `UPDATE clientes SET vencimento = DATE_ADD(vencimento, INTERVAL ? ${sqlUnit}) WHERE id = ?`;
 
         // 3. Executar a atualização da data
-        await db.query(updateDateQuery, [intervalValue, id, userId]);
+        await db.query(updateDateQuery, [intervalValue, id]);
 
         // --- INÍCIO DA LÓGICA DE ATUALIZAÇÃO DE STATUS ---
         let statusUpdated = false;
@@ -211,8 +138,7 @@ router.put('/adjust-date/:id', [
         if (unit === 'MONTH' && intervalValue > 0) {
             // Verifica se o status atual JÁ NÃO É 'Pag. em dias' para evitar update desnecessário
             if (originalStatus !== 'Pag. em dias') {
-                // 🔒 SEGURANÇA: Atualiza status apenas se pertence ao usuário
-                await db.query('UPDATE clientes SET status = ? WHERE id = ? AND user_id = ?', ['Pag. em dias', id, userId]);
+                await db.query('UPDATE clientes SET status = ? WHERE id = ?', ['Pag. em dias', id]);
                 newStatus = 'Pag. em dias'; // Atualiza a variável para o log
                 statusUpdated = true;
                 console.log(`Status do cliente ID ${id} atualizado para 'Pag. em dias' após adicionar ${intervalValue} mês(es).`);
@@ -221,7 +147,7 @@ router.put('/adjust-date/:id', [
         // --- FIM DA LÓGICA DE ATUALIZAÇÃO DE STATUS ---
 
         // 4. Buscar nova data (para confirmação e log)
-        const [newData] = await db.query('SELECT vencimento FROM clientes WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [id, userId]);
+        const [newData] = await db.query('SELECT vencimento FROM clientes WHERE id = ?', [id]);
         const newDate = newData[0].vencimento ? new Date(newData[0].vencimento).toISOString().split('T')[0] : null;
 
         // 5. Montar detalhes do log (incluindo mudança de status se houver)
@@ -232,8 +158,8 @@ router.put('/adjust-date/:id', [
         // Guarda ambos os dados originais (data e status) para reversão
         const originalLogData = { vencimento: originalDate, status: originalStatus };
 
-        // 6. Logar a ação com userId
-        await logAction('ADJUST_DATE', id, details, userId, true, originalLogData);
+        // 6. Logar a ação
+        await logAction('ADJUST_DATE', id, details, null, true, originalLogData);
 
         // 7. Enviar resposta
         res.status(200).json({
@@ -249,11 +175,10 @@ router.put('/adjust-date/:id', [
 
 // --- ROTAS DE ARQUIVAMENTO (SOFT DELETE) ---
 router.put('/archive/:id', async (req, res) => {
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
     const { id } = req.params;
     try {
-        // 🔒 SEGURANÇA: Verifica se o cliente existe e pertence ao usuário
-        const [currentData] = await db.query('SELECT id, name, arquivado FROM clientes WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [id, userId]);
+        // Verifica se o cliente existe e obtém dados atuais
+        const [currentData] = await db.query('SELECT id, name, arquivado FROM clientes WHERE id = ?', [id]);
         if (currentData.length === 0) {
             return res.status(404).json({ error: 'Cliente não encontrado.' });
         }
@@ -265,11 +190,11 @@ router.put('/archive/:id', async (req, res) => {
             return res.status(400).json({ error: 'Cliente já está arquivado.' });
         }
 
-        // 🔒 SEGURANÇA: Arquiva o cliente apenas se pertence ao usuário
-        await db.query('UPDATE clientes SET arquivado = TRUE WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [id, userId]);
+        // Arquiva o cliente
+        await db.query('UPDATE clientes SET arquivado = TRUE WHERE id = ?', [id]);
 
-        // Registra a ação no log com userId
-        await logAction('ARCHIVE_CLIENT', id, `Cliente "${cliente.name}" (ID: ${id}) foi arquivado.`, userId, true, { arquivado: false });
+        // Registra a ação no log
+        await logAction('ARCHIVE_CLIENT', id, `Cliente "${cliente.name}" (ID: ${id}) foi arquivado.`, null, true, { arquivado: false });
 
         console.log(`Cliente ID ${id} ("${cliente.name}") arquivado com sucesso.`);
 
@@ -288,11 +213,10 @@ router.put('/archive/:id', async (req, res) => {
 });
 
 router.put('/unarchive/:id', async (req, res) => {
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
     const { id } = req.params;
     try {
-        // 🔒 SEGURANÇA: Verifica se o cliente existe e pertence ao usuário
-        const [currentData] = await db.query('SELECT id, name, arquivado FROM clientes WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [id, userId]);
+        // Verifica se o cliente existe e obtém dados atuais
+        const [currentData] = await db.query('SELECT id, name, arquivado FROM clientes WHERE id = ?', [id]);
         if (currentData.length === 0) {
             return res.status(404).json({ error: 'Cliente não encontrado.' });
         }
@@ -304,11 +228,11 @@ router.put('/unarchive/:id', async (req, res) => {
             return res.status(400).json({ error: 'Cliente não está arquivado.' });
         }
 
-        // 🔒 SEGURANÇA: Desarquiva o cliente apenas se pertence ao usuário
-        await db.query('UPDATE clientes SET arquivado = FALSE WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [id, userId]);
+        // Desarquiva o cliente
+        await db.query('UPDATE clientes SET arquivado = FALSE WHERE id = ?', [id]);
 
-        // Registra a ação no log com userId
-        await logAction('UNARCHIVE_CLIENT', id, `Cliente "${cliente.name}" (ID: ${id}) foi desarquivado.`, userId, true, { arquivado: true });
+        // Registra a ação no log
+        await logAction('UNARCHIVE_CLIENT', id, `Cliente "${cliente.name}" (ID: ${id}) foi desarquivado.`, null, true, { arquivado: true });
 
         console.log(`Cliente ID ${id} ("${cliente.name}") desarquivado com sucesso.`);
 
@@ -327,18 +251,15 @@ router.put('/unarchive/:id', async (req, res) => {
 });
 
 // Rota POST /save-message (Convertida para async/await)
-// ⚠️ TODO: Migrar tabela 'config' para suportar configurações por usuário (user_id)
 router.post('/save-message', async (req, res) => { // <-- async
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
     const { message } = req.body;
     if (!message || message.trim() === '') {
         return res.status(400).json({ error: 'A mensagem não pode estar vazia.' });
     }
     try {
-        // ⚠️ ATENÇÃO: Config ainda é global (precisa migração para user_id)
         await db.query('UPDATE config SET whatsapp_message = ? WHERE id = 1', [message]); // <-- await
-        // Registra com userId para auditoria
-        await logAction('UPDATE_CONFIG', null, 'Mensagem padrão atualizada.', userId);
+        // Opcional: Adicionar logAction aqui
+        await logAction('UPDATE_CONFIG', null, 'Mensagem padrão atualizada.');
         res.status(200).json({ message: 'Mensagem padrão salva com sucesso!' });
     } catch (err) {
         console.error('Erro ao salvar mensagem padrão no banco:', err);
@@ -347,18 +268,15 @@ router.post('/save-message', async (req, res) => { // <-- async
 });
 
 // Rota POST /save-message-vencido (Convertida para async/await)
-// ⚠️ TODO: Migrar tabela 'config' para suportar configurações por usuário (user_id)
 router.post('/save-message-vencido', async (req, res) => { // <-- async
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
     const { message } = req.body;
     if (!message || message.trim() === '') {
         return res.status(400).json({ error: 'A mensagem não pode estar vazia.' });
     }
     try {
-        // ⚠️ ATENÇÃO: Config ainda é global (precisa migração para user_id)
         await db.query('UPDATE config SET whatsapp_message_vencido = ? WHERE id = 1', [message]); // <-- await
-        // Registra com userId para auditoria
-        await logAction('UPDATE_CONFIG', null, 'Mensagem de vencido atualizada.', userId);
+        // Opcional: Adicionar logAction aqui
+        await logAction('UPDATE_CONFIG', null, 'Mensagem de vencido atualizada.');
         res.status(200).json({ message: 'Mensagem (Vencido) salva com sucesso!' });
     } catch (err) {
         console.error('Erro ao salvar mensagem (vencido):', err);
@@ -369,29 +287,22 @@ router.post('/save-message-vencido', async (req, res) => { // <-- async
 
 // --- ROTAS GET (Convertidas para async/await) ---
 
-// Rota GET /list (Convertida para async/await + SEGURANÇA: Filtro user_id)
-router.get('/list', async (req, res) => {
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
+// Rota GET /list (Convertida para async/await)
+// Rota GET /list (Já estava correta)
+router.get('/list', async (req, res) => { /* ... seu código async/await completo para /list ... */
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit);
     const effectiveLimit = (!limit || limit === -1 || isNaN(limit)) ? 999999 : limit;
     const status = req.query.status || '';
     const search = req.query.search || '';
-    const showArchived = req.query.showArchived === 'true';
+    const showArchived = req.query.showArchived === 'true'; // Novo parâmetro
     const offset = (page - 1) * effectiveLimit;
     const today = new Date().toISOString().split('T')[0];
     const threeDays = new Date(); threeDays.setDate(threeDays.getDate() + 3);
     const threeDaysLater = threeDays.toISOString().split('T')[0];
     let whereClauses = []; let params = [];
 
-    // 🔒 SEGURANÇA: Filtro obrigatório por user_id
-    whereClauses.push('user_id = ?');
-    params.push(userId);
-
-    // 📦 BOA PRÁTICA: Exclui clientes soft deleted
-    whereClauses.push('deleted_at IS NULL');
-
-    // Filtro de arquivamento
+    // Filtro de arquivamento: Por padrão, mostra apenas não arquivados
     if (showArchived) {
         whereClauses.push('arquivado = TRUE');
     } else {
@@ -424,14 +335,13 @@ router.get('/list', async (req, res) => {
     }
 });
 
-// Rota GET /dashboard-stats + SEGURANÇA: Filtro user_id
+// Rota GET /dashboard-stats (Query SQL Restaurada)
 router.get('/dashboard-stats', async (req, res) => {
-  const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
   const today = new Date().toISOString().slice(0, 10);
   const threeDays = new Date(); threeDays.setDate(threeDays.getDate() + 3);
   const threeDaysLater = threeDays.toISOString().slice(0, 10);
 
-  // 🔒 SEGURANÇA: Query filtra apenas clientes do usuário
+  // --- QUERY SQL COMPLETA RESTAURADA (com filtro para excluir arquivados) ---
   const query = `
       SELECT
           SUM(custo) as custoTotal,
@@ -450,10 +360,11 @@ router.get('/dashboard-stats', async (req, res) => {
           SUM(CASE WHEN vencimento >= ? AND vencimento <= ? THEN 1 ELSE 0 END) as vence3,
           SUM(CASE WHEN vencimento > ? THEN 1 ELSE 0 END) as emdias
       FROM clientes
-      WHERE user_id = ? AND arquivado = FALSE;
+      WHERE arquivado = FALSE;
   `;
+  // --- FIM DA QUERY ---
   try {
-      const [[results]] = await db.query(query, [today, today, threeDaysLater, threeDaysLater, userId]);
+      const [[results]] = await db.query(query, [today, today, threeDaysLater, threeDaysLater]);
       res.status(200).json(results);
   } catch (err) {
       console.error('Erro ao buscar estatísticas do dashboard:', err);
@@ -474,11 +385,9 @@ router.get('/get-message', async (req, res) => { // <-- async
 
 // Rota GET /get-vencimento/:id (Convertida)
 router.get('/get-vencimento/:id', async (req, res) => { // <-- async
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
     const clientId = req.params.id;
     try {
-        // 🔒 SEGURANÇA: Filtra por user_id
-        const [results] = await db.query('SELECT vencimento FROM clientes WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [clientId, userId]); // <-- await
+        const [results] = await db.query('SELECT vencimento FROM clientes WHERE id = ?', [clientId]); // <-- await
         if (results.length === 0) { return res.status(404).json({ error: 'Cliente não encontrado.' }); }
         const formattedDate = results[0].vencimento ? new Date(results[0].vencimento).toISOString().split('T')[0] : null;
         res.status(200).json({ vencimento: formattedDate });
@@ -501,16 +410,14 @@ router.get('/get-message-vencido', async (req, res) => { // <-- async
 
 // Rota GET /pagamentos/dias (Convertida)
 router.get('/pagamentos/dias', async (req, res) => { // <-- async
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
-    // 🔒 SEGURANÇA: Filtro por user_id adicionado
     const query = `
       SELECT DAY(vencimento) AS day, COUNT(*) AS count
       FROM clientes
-      WHERE vencimento IS NOT NULL AND arquivado = FALSE AND user_id = ?
+      WHERE vencimento IS NOT NULL AND arquivado = FALSE
       GROUP BY DAY(vencimento) ORDER BY day
-    `;
+    `; // Adicionado filtro para excluir arquivados
     try {
-        const [results] = await db.query(query, [userId]); // <-- await com userId
+        const [results] = await db.query(query); // <-- await
         const payments = Array(31).fill(0);
         results.forEach(row => { if (row.day >= 1 && row.day <= 31) { payments[row.day - 1] = row.count; } });
         const labels = Array.from({ length: 31 }, (_, i) => (i + 1).toString());
@@ -524,17 +431,17 @@ router.get('/pagamentos/dias', async (req, res) => { // <-- async
 // Rota GET /stats/by-service (Convertida)
 // Rota GET /stats/by-service (Query SQL Restaurada)
 router.get('/stats/by-service', async (req, res) => {
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
-    // 🔒 SEGURANÇA: Filtro por user_id adicionado
+    // --- QUERY SQL COMPLETA RESTAURADA (com filtro para excluir arquivados) ---
     const query = `
         SELECT servico, COUNT(*) as count
         FROM clientes
-        WHERE servico IS NOT NULL AND servico != '' AND arquivado = FALSE AND user_id = ?
+        WHERE servico IS NOT NULL AND servico != '' AND arquivado = FALSE
         GROUP BY servico
         ORDER BY count DESC
     `;
+    // --- FIM DA QUERY ---
     try {
-        const [results] = await db.query(query, [userId]);
+        const [results] = await db.query(query);
         const labels = results.map(row => row.servico);
         const data = results.map(row => row.count);
         res.status(200).json({ labels, data });
@@ -545,23 +452,22 @@ router.get('/stats/by-service', async (req, res) => {
 });
 
 // Rota GET /actions/recent (Query SQL Restaurada)
-router.get('/actions/recent', async (req, res) => {
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
-    const limit = parseInt(req.query.limit) || 20;
+router.get('/actions/recent', async (req, res) => { 
+    const limit = parseInt(req.query.limit) || 20; 
     try {
-        // 🔒 SEGURANÇA: Filtro por user_id adicionado no log
+        // --- QUERY SQL COMPLETA RESTAURADA ---
         const query = `
-          SELECT
-            log.id, log.action_type, log.client_id, log.details, log.timestamp,
+          SELECT 
+            log.id, log.action_type, log.client_id, log.details, log.timestamp, 
             log.revertable, log.reverted,
-            c.name as client_name
+            c.name as client_name 
           FROM action_log log
           LEFT JOIN clientes c ON log.client_id = c.id
-          WHERE log.user_id = ?
           ORDER BY log.timestamp DESC
           LIMIT ?
         `;
-        const [actions] = await db.query(query, [userId, limit]);
+        // --- FIM DA QUERY ---
+        const [actions] = await db.query(query, [limit]);
         res.status(200).json(actions);
     } catch (err) {
         console.error('Erro ao buscar ações recentes:', err);
@@ -571,14 +477,12 @@ router.get('/actions/recent', async (req, res) => {
 
 // Rota GET /alerts (Convertida)
 router.get('/alerts', async (req, res) => { // <-- async
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
     const today = new Date();
     const threeDaysLater = new Date(today); threeDaysLater.setDate(today.getDate() + 3);
     try {
-        // 🔒 SEGURANÇA: Filtro por user_id adicionado + 📦 BOA PRÁTICA: Exclui soft deleted
         const [results] = await db.query( // <-- await
-            'SELECT * FROM clientes WHERE vencimento BETWEEN ? AND ? AND arquivado = FALSE AND user_id = ? AND deleted_at IS NULL',
-            [today.toISOString().slice(0, 10), threeDaysLater.toISOString().slice(0, 10), userId]
+            'SELECT * FROM clientes WHERE vencimento BETWEEN ? AND ? AND arquivado = FALSE',
+            [today.toISOString().slice(0, 10), threeDaysLater.toISOString().slice(0, 10)]
         );
         res.status(200).json(results);
     } catch (err) {
@@ -590,16 +494,16 @@ router.get('/alerts', async (req, res) => { // <-- async
 
 // --- NOVA ROTA: Reverter Ação ---
 router.post('/actions/:logId/revert', async (req, res) => {
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
     const logId = req.params.logId;
+    // const userId = req.userData.userId; // Obter ID do usuário do token (se necessário)
 
     if (!logId || isNaN(parseInt(logId))) {
         return res.status(400).json({ error: 'ID do log inválido.' });
     }
 
     try {
-        // 🔒 SEGURANÇA: Buscar a ação original no log verificando user_id
-        const [logEntries] = await db.query('SELECT * FROM action_log WHERE id = ? AND user_id = ?', [logId, userId]);
+        // 1. Buscar a ação original no log
+        const [logEntries] = await db.query('SELECT * FROM action_log WHERE id = ?', [logId]);
         if (logEntries.length === 0) {
             return res.status(404).json({ error: 'Ação não encontrada no log.' });
         }
@@ -630,22 +534,31 @@ router.post('/actions/:logId/revert', async (req, res) => {
         // 4. Lógica de Reversão baseada no Tipo de Ação Original
         switch (logEntry.action_type) {
             case 'DELETE_CLIENT':
-                if (!originalData || !logEntry.client_id) return res.status(500).json({ error: 'Dados originais ou ID do cliente ausentes para reverter exclusão.' });
-                // 📦 BOA PRÁTICA: Reverte soft delete limpando deleted_at
-                await db.query('UPDATE clientes SET deleted_at = NULL WHERE id = ? AND user_id = ?', [logEntry.client_id, userId]);
-                revertDetails = `Cliente "${originalData.name}" (ID: ${logEntry.client_id}) restaurado a partir da exclusão (soft delete revertido).`;
+                if (!originalData) return res.status(500).json({ error: 'Dados originais ausentes para reverter exclusão.' });
+                // Re-insere o cliente com os dados originais (exceto o ID que será novo)
+                // Atenção: O ID original está em logEntry.client_id, mas não podemos forçar a re-inserção com o mesmo ID
+                // A melhor abordagem é criar um novo registro com os dados antigos.
+                const insertQuery = `INSERT INTO clientes (name, vencimento, servico, whatsapp, observacoes, valor_cobrado, custo, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+                // Certifica que a data está no formato correto
+                const vencimentoRevert = originalData.vencimento ? new Date(originalData.vencimento).toISOString().split('T')[0] : null;
+                await db.query(insertQuery, [
+                    originalData.name, vencimentoRevert, originalData.servico, originalData.whatsapp,
+                    originalData.observacoes, originalData.valor_cobrado, originalData.custo, originalData.status
+                ]);
+                // Não sabemos o novo ID aqui facilmente, o log ficará genérico
+                revertDetails = `Cliente "${originalData.name}" (original ID: ${logEntry.client_id}) restaurado a partir da exclusão.`;
                 revertSuccess = true;
                 break;
 
             case 'UPDATE_CLIENT':
                 if (!originalData || !logEntry.client_id) return res.status(500).json({ error: 'Dados originais ou ID do cliente ausentes para reverter atualização.' });
-                // 🔒 SEGURANÇA: Atualiza o cliente verificando user_id (excluindo soft deleted)
-                const updateQuery = `UPDATE clientes SET name = ?, vencimento = ?, servico = ?, whatsapp = ?, observacoes = ?, valor_cobrado = ?, custo = ?, status = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL`;
+                // Atualiza o cliente de volta para os dados originais
+                const updateQuery = `UPDATE clientes SET name = ?, vencimento = ?, servico = ?, whatsapp = ?, observacoes = ?, valor_cobrado = ?, custo = ?, status = ? WHERE id = ?`;
                  const vencimentoRevertUpdate = originalData.vencimento ? new Date(originalData.vencimento).toISOString().split('T')[0] : null;
                 await db.query(updateQuery, [
                     originalData.name, vencimentoRevertUpdate, originalData.servico, originalData.whatsapp,
                     originalData.observacoes, originalData.valor_cobrado, originalData.custo, originalData.status,
-                    logEntry.client_id, userId // Usa o client_id do log e userId
+                    logEntry.client_id // Usa o client_id do log
                 ]);
                 revertDetails = `Atualização do cliente "${originalData.name}" (ID: ${logEntry.client_id}) revertida.`;
                 revertSuccess = true;
@@ -653,41 +566,43 @@ router.post('/actions/:logId/revert', async (req, res) => {
 
             case 'CHANGE_STATUS':
                 if (!originalData || !originalData.status || !logEntry.client_id) return res.status(500).json({ error: 'Dados originais ou ID do cliente ausentes para reverter mudança de status.' });
-                // 🔒 SEGURANÇA: Atualiza o status verificando user_id (excluindo soft deleted)
-                await db.query('UPDATE clientes SET status = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [originalData.status, logEntry.client_id, userId]);
+                // Atualiza o status de volta para o original
+                await db.query('UPDATE clientes SET status = ? WHERE id = ?', [originalData.status, logEntry.client_id]);
                 revertDetails = `Mudança de status do cliente (ID: ${logEntry.client_id}) revertida para "${originalData.status}".`;
                 revertSuccess = true;
                 break;
 
             case 'ADJUST_DATE':
                  if (!originalData || typeof originalData.vencimento === 'undefined' || !logEntry.client_id) return res.status(500).json({ error: 'Dados originais ou ID do cliente ausentes para reverter ajuste de data.' });
-                 // 🔒 SEGURANÇA: Atualiza a data verificando user_id (excluindo soft deleted)
+                 // Atualiza a data de volta para a original
+                 // Certifica que a data original está no formato correto ou NULL
                  const originalVencimentoFormatted = originalData.vencimento ? new Date(originalData.vencimento).toISOString().split('T')[0] : null;
-                 await db.query('UPDATE clientes SET vencimento = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [originalVencimentoFormatted, logEntry.client_id, userId]);
+                 await db.query('UPDATE clientes SET vencimento = ? WHERE id = ?', [originalVencimentoFormatted, logEntry.client_id]);
                  revertDetails = `Ajuste de data do cliente (ID: ${logEntry.client_id}) revertido para "${originalVencimentoFormatted}".`;
                  revertSuccess = true;
                  break;
-
+            
             case 'CREATE_CLIENT':
                  if (!logEntry.client_id) return res.status(500).json({ error: 'ID do cliente ausente para reverter criação.' });
-                 // 📦 BOA PRÁTICA: Soft delete - marca como deletado ao invés de remover permanentemente
-                 await db.query('UPDATE clientes SET deleted_at = NOW() WHERE id = ? AND user_id = ?', [logEntry.client_id, userId]);
-                 revertDetails = `Criação do cliente (ID: ${logEntry.client_id}) revertida (cliente excluído com soft delete).`;
+                 // Deleta o cliente que foi criado nesta ação
+                 await db.query('DELETE FROM clientes WHERE id = ?', [logEntry.client_id]);
+                 revertDetails = `Criação do cliente (ID: ${logEntry.client_id}) revertida (cliente excluído).`;
                  revertSuccess = true;
+                 // Nota: Se outras ações dependeram deste cliente criado, a reversão pode causar problemas.
                  break;
 
             case 'ARCHIVE_CLIENT':
                 if (!originalData || typeof originalData.arquivado === 'undefined' || !logEntry.client_id) return res.status(500).json({ error: 'Dados originais ou ID do cliente ausentes para reverter arquivamento.' });
-                // 🔒 SEGURANÇA: Reverte o arquivamento verificando user_id (excluindo soft deleted)
-                await db.query('UPDATE clientes SET arquivado = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [originalData.arquivado, logEntry.client_id, userId]);
+                // Reverte o arquivamento para o estado original (FALSE)
+                await db.query('UPDATE clientes SET arquivado = ? WHERE id = ?', [originalData.arquivado, logEntry.client_id]);
                 revertDetails = `Arquivamento do cliente (ID: ${logEntry.client_id}) revertido (desarquivado).`;
                 revertSuccess = true;
                 break;
 
             case 'UNARCHIVE_CLIENT':
                 if (!originalData || typeof originalData.arquivado === 'undefined' || !logEntry.client_id) return res.status(500).json({ error: 'Dados originais ou ID do cliente ausentes para reverter desarquivamento.' });
-                // 🔒 SEGURANÇA: Reverte o desarquivamento verificando user_id (excluindo soft deleted)
-                await db.query('UPDATE clientes SET arquivado = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL', [originalData.arquivado, logEntry.client_id, userId]);
+                // Reverte o desarquivamento para o estado original (TRUE)
+                await db.query('UPDATE clientes SET arquivado = ? WHERE id = ?', [originalData.arquivado, logEntry.client_id]);
                 revertDetails = `Desarquivamento do cliente (ID: ${logEntry.client_id}) revertido (arquivado novamente).`;
                 revertSuccess = true;
                 break;
@@ -699,8 +614,7 @@ router.post('/actions/:logId/revert', async (req, res) => {
         // 5. Se a reversão deu certo, marca a ação original como revertida e loga a reversão
         if (revertSuccess) {
             await db.query('UPDATE action_log SET reverted = TRUE WHERE id = ?', [logId]);
-            // Registra a reversão com userId
-            await logAction('REVERT_ACTION', logEntry.client_id, `Ação ID ${logId} (${logEntry.action_type}) foi revertida. ${revertDetails}`, userId, false); // Ação de reverter não é revertível
+            await logAction('REVERT_ACTION', logEntry.client_id, `Ação ID ${logId} (${logEntry.action_type}) foi revertida. ${revertDetails}`, null, false); // Ação de reverter não é revertível
             res.status(200).json({ message: 'Ação revertida com sucesso!' });
         } else {
              // Caso a lógica switch não tenha retornado erro mas não setou revertSuccess (improvável)
@@ -716,9 +630,8 @@ router.post('/actions/:logId/revert', async (req, res) => {
 
 // --- NOVA ROTA: Listar Clientes Pendentes do Mês Atual ---
 router.get('/pending-this-month', async (req, res) => {
-    const userId = req.userData.id; // 🔒 SEGURANÇA: Obtém user_id do JWT
     try {
-        // 🔒 SEGURANÇA: Filtro por user_id adicionado
+        // Query com os mesmos filtros usados no SUM do /dashboard-stats (excluindo arquivados)
         const query = `
             SELECT id, name, vencimento, valor_cobrado, status
             FROM clientes
@@ -727,10 +640,9 @@ router.get('/pending-this-month', async (req, res) => {
                 AND MONTH(vencimento) = MONTH(CURRENT_DATE())
                 AND YEAR(vencimento) = YEAR(CURRENT_DATE())
                 AND arquivado = FALSE
-                AND user_id = ?
             ORDER BY vencimento ASC;
         `;
-        const [clients] = await db.query(query, [userId]);
+        const [clients] = await db.query(query);
 
         // Formata a data antes de enviar (opcional, mas bom para consistência)
          const formattedClients = clients.map(client => ({

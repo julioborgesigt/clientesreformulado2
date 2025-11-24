@@ -27,7 +27,7 @@ module.exports = (req, res, next) => {
         const decodedToken = jwt.verify(token, process.env.JWT_SECRET);
 
         // Adiciona os dados do usuário (como o ID) ao objeto 'req'
-        req.userData = { userId: decodedToken.id };
+        req.userData = { id: decodedToken.id };
 
         // Continua para a próxima rota
         next();

@@ -56,10 +56,10 @@ const authLimiter = rateLimit({
  *                 example: joao@exemplo.com
  *               password:
  *                 type: string
- *                 minLength: 6
- *                 pattern: ^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)
- *                 example: Senha123
- *                 description: Deve conter letras maiúsculas, minúsculas e números
+ *                 minLength: 12
+ *                 pattern: ^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])
+ *                 example: SenhaSegura123!
+ *                 description: Deve ter 12+ caracteres com maiúsculas, minúsculas, números e caracteres especiais
  *     responses:
  *       201:
  *         description: Usuário registrado com sucesso
@@ -100,10 +100,10 @@ router.post('/register', [
         .withMessage('Email inválido')
         .normalizeEmail(),
     body('password')
-        .isLength({ min: 6 })
-        .withMessage('Senha deve ter no mínimo 6 caracteres')
-        .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-        .withMessage('Senha deve conter letras maiúsculas, minúsculas e números')
+        .isLength({ min: 12 })
+        .withMessage('Senha deve ter no mínimo 12 caracteres')
+        .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/)
+        .withMessage('Senha deve conter letras maiúsculas, minúsculas, números e caracteres especiais (@$!%*?&)')
 ], async (req, res) => {
     // Verifica erros de validação
     const errors = validationResult(req);

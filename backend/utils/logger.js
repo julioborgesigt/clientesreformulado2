@@ -1,6 +1,7 @@
 // backend/utils/logger.js
 const winston = require('winston');
 const path = require('path');
+require('winston-daily-rotate-file');
 
 // Define níveis de log customizados
 const levels = {
@@ -39,22 +40,31 @@ const consoleFormat = winston.format.combine(
   )
 );
 
-// Define para onde os logs serão enviados
+// 🔒 SEGURANÇA E BOA PRÁTICA: Rotação diária de logs
+// Previne crescimento ilimitado de arquivos de log
 const transports = [
   // Console - sempre ativo
   new winston.transports.Console({
     format: consoleFormat,
   }),
-  // Arquivo de erros
-  new winston.transports.File({
-    filename: path.join(__dirname, '../../logs/error.log'),
+  // Arquivo de erros com rotação diária
+  new winston.transports.DailyRotateFile({
+    filename: path.join(__dirname, '../../logs/error-%DATE%.log'),
+    datePattern: 'YYYY-MM-DD',
     level: 'error',
     format: format,
+    maxSize: '20m', // Rotaciona se arquivo exceder 20MB
+    maxFiles: '30d', // Mantém logs por 30 dias
+    zippedArchive: true, // Comprime arquivos antigos
   }),
-  // Arquivo de todos os logs
-  new winston.transports.File({
-    filename: path.join(__dirname, '../../logs/combined.log'),
+  // Arquivo de todos os logs com rotação diária
+  new winston.transports.DailyRotateFile({
+    filename: path.join(__dirname, '../../logs/combined-%DATE%.log'),
+    datePattern: 'YYYY-MM-DD',
     format: format,
+    maxSize: '20m', // Rotaciona se arquivo exceder 20MB
+    maxFiles: '14d', // Mantém logs por 14 dias
+    zippedArchive: true, // Comprime arquivos antigos
   }),
 ];
 

@@ -77,7 +77,9 @@ const options = {
             },
             name: {
               type: 'string',
-              description: 'Nome do cliente'
+              description: 'Nome do cliente',
+              minLength: 2,
+              maxLength: 100
             },
             vencimento: {
               type: 'string',
@@ -90,22 +92,55 @@ const options = {
             },
             whatsapp: {
               type: 'string',
-              description: 'Número WhatsApp'
+              description: 'Número WhatsApp (10-15 dígitos)',
+              pattern: '^[0-9]{10,15}$'
+            },
+            observacoes: {
+              type: 'string',
+              description: 'Observações sobre o cliente',
+              nullable: true
             },
             valor_cobrado: {
               type: 'number',
               format: 'decimal',
-              description: 'Valor cobrado'
+              description: 'Valor cobrado',
+              minimum: 0
             },
             custo: {
               type: 'number',
               format: 'decimal',
-              description: 'Custo do serviço'
+              description: 'Custo do serviço',
+              minimum: 0
             },
             status: {
               type: 'string',
-              enum: ['pago', 'pendente', 'em_dias'],
+              enum: ['Não pagou', 'cobrança feita', 'Pag. em dias'],
               description: 'Status do pagamento'
+            },
+            arquivado: {
+              type: 'boolean',
+              description: 'Se o cliente está arquivado',
+              default: false
+            },
+            user_id: {
+              type: 'integer',
+              description: 'ID do usuário proprietário'
+            },
+            created_at: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Data de criação'
+            },
+            updated_at: {
+              type: 'string',
+              format: 'date-time',
+              description: 'Data de atualização'
+            },
+            deleted_at: {
+              type: 'string',
+              format: 'date-time',
+              nullable: true,
+              description: 'Data de exclusão (soft delete)'
             }
           }
         }
@@ -123,10 +158,21 @@ const options = {
       {
         name: 'Serviços',
         description: 'Gerenciamento de serviços (requer autenticação)'
+      },
+      {
+        name: 'Health Check',
+        description: 'Endpoints de monitoramento e saúde do sistema'
+      },
+      {
+        name: 'Backup',
+        description: 'Endpoints de backup e restauração do banco de dados'
       }
     ]
   },
-  apis: ['./backend/routes/*.js'], // Caminho para os arquivos com anotações
+  apis: [
+    './backend/routes/*.js',
+    './backend/routes/*.swagger.js'
+  ], // Caminho para os arquivos com anotações
 };
 
 const swaggerSpec = swaggerJsdoc(options);

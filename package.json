@@ -1,8 +1,8 @@
 {
-  "name": "projetoclientes",
+  "name": "clientes-api-backend",
   "version": "1.0.0",
-  "description": "Projeto de cadastro de clientes",
-  "main": "index.js",
+  "description": "API REST para gestão de clientes - Backend",
+  "main": "backend/app.js",
   "scripts": {
     "start": "node backend/app.js",
     "dev": "nodemon backend/app.js",
@@ -38,7 +38,8 @@
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
     "twilio": "^5.3.6",
-    "winston": "^3.18.3"
+    "winston": "^3.18.3",
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
     "jest": "^30.2.0",
