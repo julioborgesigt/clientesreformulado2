@@ -323,6 +323,7 @@ const csrfMiddleware = process.env.NODE_ENV === 'test' ? (req, res, next) => nex
 
 // Auth routes - CSRF aplicado apenas em POST/PUT/DELETE (GET é ignorado pela config)
 app.use('/auth', csrfMiddleware, authRoutes);
+
 // Rotas protegidas por autenticação + CSRF + Rate limiter permissivo
 // O authenticatedLimiter permite mais ações para usuários autenticados (500 req/15min)
 app.use('/clientes', authMiddleware, authenticatedLimiter, csrfMiddleware, clientesRoutes);

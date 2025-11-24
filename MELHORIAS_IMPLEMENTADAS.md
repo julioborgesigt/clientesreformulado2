@@ -13,11 +13,13 @@
 - ✅ Endpoints documentados: 14/39 (35%)
 - ❌ Clientes: 0/21 (0%)
 - ❌ Serviços: 0/4 (0%)
+- ❌ Autenticação: Sem alteração de senha
 
 **Depois:**
-- ✅ Endpoints documentados: **39/39 (100%)** 🎯
+- ✅ Endpoints documentados: **40/40 (100%)** 🎯
 - ✅ Clientes: 21/21 (100%)
 - ✅ Serviços: 4/4 (100%)
+- ✅ Autenticação: 15/15 (100%) - Incluindo change-password
 
 ---
 
@@ -183,6 +185,53 @@ http://localhost:3000/api-docs
 
 ---
 
+### 5. Endpoint de Alteração de Senha ✅
+
+**Arquivo modificado:** [`backend/routes/auth.js`](backend/routes/auth.js)
+
+**Novo endpoint implementado:**
+- ✅ `PUT /auth/change-password` - Alterar senha do usuário autenticado
+
+**Recursos implementados:**
+- ✅ **Autenticação obrigatória** - Usa `authMiddleware` para validar JWT
+- ✅ **Validação da senha atual** - Verifica com bcrypt se a senha atual está correta
+- ✅ **Validação da nova senha**:
+  - Mínimo 12 caracteres
+  - Deve conter letras maiúsculas e minúsculas
+  - Deve conter números
+  - Deve conter caracteres especiais (@$!%*?&)
+  - Não pode ser igual à senha atual
+- ✅ **Hash seguro** - Nova senha é criptografada com bcrypt (10 rounds)
+- ✅ **Segurança adicional** - Revoga TODOS os refresh tokens do usuário após alteração
+- ✅ **Documentação Swagger completa** - Request/response schemas e exemplos
+- ✅ **Logging** - Registra tentativas bem-sucedidas e falhas
+
+**Exemplo de uso:**
+```bash
+PUT /auth/change-password
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "currentPassword": "SenhaAntiga123!",
+  "newPassword": "SenhaNova456@Segura"
+}
+```
+
+**Resposta de sucesso:**
+```json
+{
+  "message": "Senha alterada com sucesso! Por segurança, faça login novamente."
+}
+```
+
+**Segurança:**
+- Após alteração, todos os tokens de refresh são revogados
+- Usuário precisa fazer login novamente em todos os dispositivos
+- Previne acesso não autorizado caso o token tenha sido comprometido
+
+---
+
 ## 📋 PRÓXIMAS ETAPAS (Pendentes)
 
 ### Prioridade Alta
@@ -261,6 +310,7 @@ http://localhost:3000/api-docs
 - [`backend/swagger.js`](backend/swagger.js) - Schema Client corrigido
 - [`backend/routes/clientes.js`](backend/routes/clientes.js) - Import logAction
 - [`backend/routes/servicos.js`](backend/routes/servicos.js) - Import logAction
+- [`backend/routes/auth.js`](backend/routes/auth.js) - Endpoint de alteração de senha
 
 ---
 
@@ -272,6 +322,7 @@ Todas as **Prioridades Máximas** identificadas na auditoria foram **IMPLEMENTAD
 - ✅ Documentação Swagger para Serviços (4 endpoints)
 - ✅ Correção do Schema Client
 - ✅ Refatoração do logAction
+- ✅ Endpoint de Alteração de Senha (com segurança avançada)
 
 **Cobertura de documentação:** 35% → **100%** 🎯
 
