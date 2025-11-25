@@ -10,6 +10,7 @@ const {
 const logger = require('../utils/logger');
 const fs = require('fs').promises;
 const path = require('path');
+const os = require('os');
 
 /**
  * 📦 Rotas de Backup
@@ -65,6 +66,71 @@ router.post('/', async (req, res) => {
             message: error.message
         });
     }
+});
+
+/**
+ * GET /backup/admin/dashboard - Retorna informações completas para o painel de admin
+ * ⚠️ IMPORTANTE: Esta rota DEVE vir ANTES de /:filename para não ser capturada por ela
+ */
+router.get('/admin/dashboard', async (req, res) => {
+    try {
+        const backups = await listBackups();
+        const used = process.memoryUsage();
+        const totalMemory = os.totalmem();
+        const freeMemory = os.freemem();
+
+        res.json({
+            success: true,
+            system: {
+                memory: {
+                    process: {
+                        heapUsed: Math.round(used.heapUsed / 1024 / 1024), // MB
+                        heapTotal: Math.round(used.heapTotal / 1024 / 1024), // MB
+                        rss: Math.round(used.rss / 1024 / 1024), // MB
+                    },
+                    system: {
+                        total: Math.round(totalMemory / 1024 / 1024 / 1024 * 100) / 100, // GB
+                        free: Math.round(freeMemory / 1024 / 1024 / 1024 * 100) / 100, // GB
+                        used: Math.round((totalMemory - freeMemory) / 1024 / 1024 / 1024 * 100) / 100, // GB
+                        usagePercent: Math.round(((totalMemory - freeMemory) / totalMemory) * 100)
+                    }
+                },
+                platform: os.platform(),
+                cpus: os.cpus().length,
+                nodeVersion: process.version
+            },
+            backup: {
+                enabled: BACKUP_CONFIG.enabled,
+                maxBackups: BACKUP_CONFIG.maxBackups,
+                intervalHours: BACKUP_CONFIG.autoBackupInterval / 1000 / 60 / 60,
+                currentBackupsCount: backups.length,
+                latestBackup: backups.length > 0 ? backups[0] : null
+            }
+        });
+    } catch (error) {
+        logger.error('Erro ao obter informações do dashboard:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Erro ao obter informações do sistema',
+            message: error.message
+        });
+    }
+});
+
+/**
+ * GET /backup/config/status - Retorna status e configuração do backup
+ * ⚠️ IMPORTANTE: Esta rota DEVE vir ANTES de /:filename para não ser capturada por ela
+ */
+router.get('/config/status', (req, res) => {
+    res.json({
+        success: true,
+        config: {
+            enabled: BACKUP_CONFIG.enabled,
+            maxBackups: BACKUP_CONFIG.maxBackups,
+            intervalHours: BACKUP_CONFIG.autoBackupInterval / 1000 / 60 / 60,
+            backupDir: BACKUP_DIR
+        }
+    });
 });
 
 /**
@@ -163,21 +229,6 @@ router.delete('/:filename', async (req, res) => {
             message: error.message
         });
     }
-});
-
-/**
- * GET /backup/config/status - Retorna status e configuração do backup
- */
-router.get('/config/status', (req, res) => {
-    res.json({
-        success: true,
-        config: {
-            enabled: BACKUP_CONFIG.enabled,
-            maxBackups: BACKUP_CONFIG.maxBackups,
-            intervalHours: BACKUP_CONFIG.autoBackupInterval / 1000 / 60 / 60,
-            backupDir: BACKUP_DIR
-        }
-    });
 });
 
 module.exports = router;
