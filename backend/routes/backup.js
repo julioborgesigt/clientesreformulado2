@@ -26,13 +26,21 @@ router.get('/', async (req, res) => {
     try {
         const backups = await listBackups();
 
+        logger.info(`📋 Listagem de backups solicitada. Total: ${backups.length}, Enabled: ${BACKUP_CONFIG.enabled}, MaxBackups: ${BACKUP_CONFIG.maxBackups}`);
+
         res.json({
             success: true,
             count: backups.length,
             maxBackups: BACKUP_CONFIG.maxBackups,
             autoBackupEnabled: BACKUP_CONFIG.enabled,
             backupDir: BACKUP_DIR,
-            backups: backups
+            backups: backups,
+            // Campos adicionais para compatibilidade com frontend
+            config: {
+                enabled: BACKUP_CONFIG.enabled,
+                retention: BACKUP_CONFIG.maxBackups,
+                intervalHours: BACKUP_CONFIG.autoBackupInterval / 1000 / 60 / 60
+            }
         });
     } catch (error) {
         logger.error('Erro ao listar backups:', error);
@@ -122,11 +130,20 @@ router.get('/admin/dashboard', async (req, res) => {
  * ⚠️ IMPORTANTE: Esta rota DEVE vir ANTES de /:filename para não ser capturada por ela
  */
 router.get('/config/status', (req, res) => {
+    logger.info(`📊 Configuração de backup solicitada. BACKUP_CONFIG:`, {
+        enabled: BACKUP_CONFIG.enabled,
+        maxBackups: BACKUP_CONFIG.maxBackups,
+        intervalHours: BACKUP_CONFIG.autoBackupInterval / 1000 / 60 / 60
+    });
+
     res.json({
         success: true,
         config: {
             enabled: BACKUP_CONFIG.enabled,
+            autoBackupEnabled: BACKUP_CONFIG.enabled, // Alias para compatibilidade
             maxBackups: BACKUP_CONFIG.maxBackups,
+            retention: BACKUP_CONFIG.maxBackups, // Alias para maxBackups (compatibilidade com frontend)
+            retentionDays: BACKUP_CONFIG.maxBackups, // Outro alias possível
             intervalHours: BACKUP_CONFIG.autoBackupInterval / 1000 / 60 / 60,
             backupDir: BACKUP_DIR
         }
