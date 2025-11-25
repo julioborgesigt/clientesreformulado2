@@ -308,6 +308,7 @@ const servicosRoutes = require('./routes/servicos');
 const healthRoutes = require('./routes/health');
 const backupRoutes = require('./routes/backup');
 const authMiddleware = require('./middleware/authMiddleware');
+const adminMiddleware = require('./middleware/adminMiddleware'); // Importa o middleware de admin
 const setupSwagger = require('./swagger');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const { startAutoBackup } = require('./services/backupService');
@@ -328,8 +329,8 @@ app.use('/auth', csrfMiddleware, authRoutes);
 // O authenticatedLimiter permite mais ações para usuários autenticados (500 req/15min)
 app.use('/clientes', authMiddleware, authenticatedLimiter, csrfMiddleware, clientesRoutes);
 app.use('/servicos', authMiddleware, authenticatedLimiter, csrfMiddleware, servicosRoutes);
-// 📦 Backup routes (requer autenticação - TODO: adicionar middleware de admin)
-app.use('/backup', authMiddleware, authenticatedLimiter, csrfMiddleware, backupRoutes);
+// 📦 Backup routes (requer autenticação de ADMIN)
+app.use('/backup', authMiddleware, adminMiddleware, authenticatedLimiter, csrfMiddleware, backupRoutes);
   
 
 // API Health check endpoint

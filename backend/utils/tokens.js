@@ -20,8 +20,17 @@ function hashToken(token) {
  * @returns {string} Access token
  */
 function generateAccessToken(user) {
+  // 🔒 SEGURANÇA: Adiciona flag de admin se o e-mail corresponder
+  const isAdmin = user.email === process.env.ADMIN_EMAIL;
+  
+  const payload = {
+    id: user.id,
+    email: user.email,
+    ...(isAdmin && { AdminIsTrue: true }) // Adiciona a flag apenas se for admin
+  };
+
   return jwt.sign(
-    { id: user.id, email: user.email },
+    payload,
     process.env.JWT_SECRET,
     { expiresIn: '15m' } // 15 minutos
   );

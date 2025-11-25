@@ -16,7 +16,8 @@ const REQUIRED_ENV_VARS = [
     'JWT_REFRESH_SECRET',
     'CSRF_SECRET',
     'NODE_ENV',
-    'FRONTEND_URL'
+    'FRONTEND_URL',
+    'ADMIN_EMAIL'
 ];
 
 // Variáveis opcionais com valores padrão
@@ -61,6 +62,16 @@ function validateEnvVar(varName) {
             } catch {
                 return 'Deve ser uma URL válida (ex: https://exemplo.com)';
             }
+        },
+
+        // ADMIN_EMAIL deve ser um email válido
+        'ADMIN_EMAIL': (val) => {
+            // Regex simples para validação de e-mail
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(val)) {
+                return 'Deve ser um endereço de e-mail válido';
+            }
+            return null;
         },
 
         // DB_CONNECTION_LIMIT deve ser um número entre 1 e 100
