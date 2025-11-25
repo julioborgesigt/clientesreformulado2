@@ -32,7 +32,9 @@ function adminMiddleware(req, res, next) {
             logger.info(`Acesso de administrador concedido ao usuário ID: ${decoded.id}`);
             next(); // O usuário é um administrador, continua para a próxima função de middleware
         } else {
-            logger.warn(`Tentativa de acesso admin negada para o usuário ID: ${decoded.id}. Não é administrador.`);
+            logger.warn(`Tentativa de acesso admin negada para o usuário ID: ${decoded.id}. O token não continha a flag 'AdminIsTrue'.`);
+            // Para depuração, logue o conteúdo do token (sem informações sensíveis em produção se necessário)
+            logger.debug(`[ADMIN DEBUG] Conteúdo do token decodificado:`, decoded);
             return res.status(403).json({
                 message: 'Acesso proibido. Requer privilégios de administrador.'
             });

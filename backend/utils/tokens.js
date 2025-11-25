@@ -20,8 +20,8 @@ function hashToken(token) {
  * @returns {string} Access token
  */
 function generateAccessToken(user) {
-  // 🔒 SEGURANÇA: Adiciona flag de admin se o e-mail corresponder
-  const isAdmin = user.email === process.env.ADMIN_EMAIL;
+  // 🔒 SEGURANÇA: Adiciona flag de admin se o e-mail corresponder (case-insensitive)
+  const isAdmin = user.email.toLowerCase() === process.env.ADMIN_EMAIL.toLowerCase();
   
   const payload = {
     id: user.id,
