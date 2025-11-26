@@ -32,7 +32,7 @@ function generateAccessToken(user) {
   return jwt.sign(
     payload,
     process.env.JWT_SECRET,
-    { expiresIn: '15m' } // 15 minutos
+    { expiresIn: '1h' } // 1 hora
   );
 }
 
@@ -45,7 +45,7 @@ function generateRefreshToken(user) {
   return jwt.sign(
     { id: user.id, type: 'refresh' },
     process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
-    { expiresIn: '7d' } // 7 dias
+    { expiresIn: '30d' } // 30 dias
   );
 }
 
@@ -80,9 +80,9 @@ async function saveRefreshToken(userId, token, maxTokensPerUser = 5) {
       [userId, userId, maxTokensPerUser - 1] // -1 porque vamos inserir um novo
     );
 
-    // Calcula data de expiração (7 dias)
+    // Calcula data de expiração (30 dias)
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+    expiresAt.setDate(expiresAt.getDate() + 30);
 
     // 🔒 SEGURANÇA: Salva APENAS o hash, não o token plaintext
     // Tenta primeiro com token_hash (nova coluna), se falhar usa token (legado)

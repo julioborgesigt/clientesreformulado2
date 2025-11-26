@@ -27,12 +27,12 @@ const router = express.Router();
 
 // Rate limiter específico para autenticação - mais restritivo
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 5, // Máximo de 5 tentativas de login por IP a cada 15 minutos
-  message: 'Muitas tentativas de login. Tente novamente após 15 minutos.',
-  standardHeaders: true,
-  legacyHeaders: false,
-  skipSuccessfulRequests: true, // Não conta requisições bem-sucedidas
+    windowMs: 15 * 60 * 1000, // 15 minutos
+    max: 5, // Máximo de 5 tentativas de login por IP a cada 15 minutos
+    message: 'Muitas tentativas de login. Tente novamente após 15 minutos.',
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true, // Não conta requisições bem-sucedidas
 });
 
 /**
@@ -210,16 +210,16 @@ router.post('/register', [
  *                   example: Login bem-sucedido!
  *                 accessToken:
  *                   type: string
- *                   description: Token de acesso JWT (15 minutos)
+ *                   description: Token de acesso JWT (1 hora)
  *                   example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
  *                 refreshToken:
  *                   type: string
- *                   description: Token de renovação JWT (7 dias)
+ *                   description: Token de renovação JWT (30 dias)
  *                   example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
  *                 expiresIn:
  *                   type: number
  *                   description: Tempo de expiração do access token em segundos
- *                   example: 900
+ *                   example: 3600
  *       400:
  *         description: Dados inválidos
  *         content:
@@ -287,7 +287,7 @@ router.post('/login', [
         if (results.length === 0) {
             // Usar 401 Unauthorized para ambos (não encontrado ou senha errada)
             // Evita dar dicas a atacantes se um email existe ou não.
-            return res.status(401).json({ error: 'Credenciais inválidas.' }); 
+            return res.status(401).json({ error: 'Credenciais inválidas.' });
         }
         const user = results[0];
 
@@ -324,7 +324,7 @@ router.post('/login', [
                 message: 'Login bem-sucedido!',
                 accessToken,
                 refreshToken,
-                expiresIn: 900 // 15 minutos em segundos
+                expiresIn: 3600 // 1 hora em segundos
             });
 
         } catch (compareErr) {
@@ -386,7 +386,7 @@ router.post('/login', [
  *                   type: string
  *                 expiresIn:
  *                   type: number
- *                   example: 900
+ *                   example: 3600
  *       400:
  *         description: Dados inválidos
  *       401:
@@ -486,7 +486,7 @@ router.post('/first-login', [
             message: 'Primeiro login concluído com sucesso!',
             accessToken,
             refreshToken,
-            expiresIn: 900
+            expiresIn: 3600
         });
 
     } catch (err) {
@@ -527,7 +527,7 @@ router.post('/first-login', [
  *                   type: string
  *                 expiresIn:
  *                   type: number
- *                   example: 900
+ *                   example: 3600
  *       400:
  *         description: Refresh token não fornecido
  *       401:
@@ -573,7 +573,7 @@ router.post('/refresh', async (req, res) => {
         res.status(200).json({
             accessToken: newAccessToken,
             refreshToken: newRefreshToken,
-            expiresIn: 900 // 15 minutos
+            expiresIn: 3600 // 1 hora
         });
 
     } catch (error) {
