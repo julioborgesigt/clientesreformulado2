@@ -220,7 +220,7 @@
  *           example: João Silva
  *         details:
  *           type: string
- *           example: Cliente "João Silva" (ID: 42) atualizado.
+ *           example: 'Cliente "João Silva" (ID: 42) atualizado.'
  *         timestamp:
  *           type: string
  *           format: date-time

@@ -1,0 +1,42 @@
+import { IsString, IsOptional, IsISO8601, IsNumber, MinLength, MaxLength, Matches, Min } from 'class-validator';
+
+/**
+ * DTO para atualização de cliente
+ *
+ * Todos os campos são opcionais pois permite atualização parcial
+ */
+export class UpdateClienteDto {
+  @IsOptional()
+  @IsString({ message: 'Nome deve ser uma string' })
+  @MinLength(2, { message: 'Nome deve ter no mínimo 2 caracteres' })
+  @MaxLength(100, { message: 'Nome deve ter no máximo 100 caracteres' })
+  name?: string;
+
+  @IsOptional()
+  @IsISO8601({}, { message: 'Data de vencimento inválida (use formato ISO8601)' })
+  vencimento?: string;
+
+  @IsOptional()
+  @IsString({ message: 'Serviço deve ser uma string' })
+  @MinLength(1, { message: 'Serviço não pode estar vazio' })
+  servico?: string;
+
+  @IsOptional()
+  @IsString({ message: 'WhatsApp deve ser uma string' })
+  @Matches(/^[0-9]{10,15}$/, { message: 'WhatsApp deve conter 10-15 dígitos' })
+  whatsapp?: string;
+
+  @IsOptional()
+  @IsString({ message: 'Observações devem ser uma string' })
+  observacoes?: string;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'Valor cobrado deve ser um número' })
+  @Min(0, { message: 'Valor cobrado deve ser positivo' })
+  valor_cobrado?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: 'Custo deve ser um número' })
+  @Min(0, { message: 'Custo deve ser positivo' })
+  custo?: number;
+}

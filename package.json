@@ -5,7 +5,11 @@
   "main": "backend/app.js",
   "scripts": {
     "start": "node backend/app.js",
+    "start:ts": "node backend/dist/app.js",
     "dev": "nodemon backend/app.js",
+    "dev:ts": "ts-node-dev --respawn --transpile-only backend/src/app.ts",
+    "build": "tsc",
+    "build:watch": "tsc --watch",
     "test": "jest --coverage --detectOpenHandles",
     "test:watch": "jest --watch"
   },
@@ -20,8 +24,12 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "bcrypt": "^6.0.0",
     "bcryptjs": "^2.4.3",
     "body-parser": "^1.20.3",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "csrf-csrf": "^4.0.3",
@@ -35,6 +43,7 @@
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.11.5",
     "nodemon": "^3.1.7",
+    "reflect-metadata": "^0.2.2",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
     "twilio": "^5.3.6",
@@ -42,7 +51,17 @@
     "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/debug": "^4.1.12",
+    "@types/express": "^5.0.5",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.10.1",
     "jest": "^30.2.0",
-    "supertest": "^7.1.4"
+    "supertest": "^7.1.4",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.9.3"
   }
 }

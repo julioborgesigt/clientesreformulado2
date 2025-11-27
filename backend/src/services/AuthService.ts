@@ -1,0 +1,408 @@
+import bcrypt from 'bcrypt';
+import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
+import { UserRepository } from '../repositories/UserRepository';
+import { RefreshTokenRepository } from '../repositories/RefreshTokenRepository';
+import { RegisterDto } from '../dtos/auth/RegisterDto';
+import { LoginDto } from '../dtos/auth/LoginDto';
+import { FirstLoginDto } from '../dtos/auth/FirstLoginDto';
+import { ChangePasswordDto } from '../dtos/auth/ChangePasswordDto';
+import { ResetPasswordDto } from '../dtos/auth/ResetPasswordDto';
+import { RefreshTokenDto } from '../dtos/auth/RefreshTokenDto';
+import { User, toSafeUser, SafeUser } from '../entities/User';
+import { JWT_SECRET, JWT_ISSUER, JWT_AUDIENCE } from '../config/jwt.config';
+
+/**
+ * Constantes de configuração
+ */
+const BCRYPT_ROUNDS = 12;
+const REFRESH_TOKEN_EXPIRY_DAYS = 7;
+const RECOVERY_CODE_EXPIRY_DAYS = 30;
+
+/**
+ * Tipos de retorno
+ */
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
+}
+
+export interface LoginResponse {
+  user: SafeUser;
+  tokens: AuthTokens;
+  firstLogin: boolean;
+}
+
+export interface RefreshTokenResponse {
+  accessToken: string;
+  refreshToken: string;
+}
+
+/**
+ * Service de autenticação
+ * Contém toda a lógica de negócio relacionada a autenticação
+ */
+export class AuthService {
+  constructor(
+    private userRepository: UserRepository,
+    private refreshTokenRepository: RefreshTokenRepository
+  ) {}
+
+  /**
+   * Registra novo usuário
+   * @param dto Dados de registro
+   * @returns ID do usuário criado e recovery code
+   */
+  async register(dto: RegisterDto): Promise<{ userId: number; recoveryCode: string }> {
+    // Verificar se email já existe
+    const emailExists = await this.userRepository.emailExists(dto.email);
+    if (emailExists) {
+      throw new Error('Email já está em uso');
+    }
+
+    // Hash da senha
+    const hashedPassword = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+
+    // Gerar recovery code
+    const recoveryCode = this.generateRecoveryCode();
+
+    // Criar usuário
+    const userId = await this.userRepository.create({
+      name: dto.name,
+      email: dto.email,
+      password: hashedPassword,
+      role: 'user',
+      recovery_code: recoveryCode
+    });
+
+    // TODO: Enviar recovery code por email
+    // TODO: Log de ação (ActionLogService)
+
+    return { userId, recoveryCode };
+  }
+
+  /**
+   * Realiza login
+   * @param dto Dados de login
+   * @returns Usuário e tokens
+   */
+  async login(dto: LoginDto): Promise<LoginResponse> {
+    // Buscar usuário
+    const user = await this.userRepository.findByEmail(dto.email);
+    if (!user) {
+      throw new Error('Credenciais inválidas');
+    }
+
+    // Verificar senha
+    const passwordValid = await bcrypt.compare(dto.password, user.password);
+    if (!passwordValid) {
+      throw new Error('Credenciais inválidas');
+    }
+
+    // Verificar se é primeiro login
+    const firstLogin = !user.first_login_completed;
+
+    if (firstLogin) {
+      // Retornar resposta indicando necessidade de recovery code
+      throw new Error('FIRST_LOGIN_REQUIRED');
+    }
+
+    // Gerar tokens
+    const tokens = await this.generateTokens(user);
+
+    // TODO: Log de ação (ActionLogService)
+
+    return {
+      user: toSafeUser(user),
+      tokens,
+      firstLogin
+    };
+  }
+
+  /**
+   * Primeiro login com recovery code
+   * @param dto Dados de primeiro login
+   * @returns Usuário e tokens
+   */
+  async firstLogin(dto: FirstLoginDto): Promise<LoginResponse> {
+    // Buscar usuário
+    const user = await this.userRepository.findByEmail(dto.email);
+    if (!user) {
+      throw new Error('Credenciais inválidas');
+    }
+
+    // Verificar senha
+    const passwordValid = await bcrypt.compare(dto.password, user.password);
+    if (!passwordValid) {
+      throw new Error('Credenciais inválidas');
+    }
+
+    // Verificar se já completou primeiro login
+    if (user.first_login_completed) {
+      throw new Error('Primeiro login já foi completado. Use o endpoint de login normal.');
+    }
+
+    // Validar recovery code
+    this.validateRecoveryCode(user, dto.recoveryCode);
+
+    // Marcar primeiro login como completo
+    await this.userRepository.markFirstLoginCompleted(user.id);
+
+    // Gerar novo recovery code
+    const newRecoveryCode = this.generateRecoveryCode();
+    await this.userRepository.updateRecoveryCode(user.id, newRecoveryCode);
+
+    // Gerar tokens
+    const tokens = await this.generateTokens(user);
+
+    // TODO: Enviar novo recovery code por email
+    // TODO: Log de ação (ActionLogService)
+
+    return {
+      user: toSafeUser(user),
+      tokens,
+      firstLogin: false
+    };
+  }
+
+  /**
+   * Renova access token usando refresh token
+   * @param dto Dados de refresh
+   * @returns Novos tokens
+   */
+  async refreshToken(dto: RefreshTokenDto): Promise<RefreshTokenResponse> {
+    // Hash do refresh token recebido
+    const tokenHash = this.hashToken(dto.refreshToken);
+
+    // Verificar se token existe e é válido
+    const isValid = await this.refreshTokenRepository.isTokenValid(tokenHash);
+    if (!isValid) {
+      throw new Error('Refresh token inválido ou expirado');
+    }
+
+    // Buscar token
+    const refreshToken = await this.refreshTokenRepository.findByTokenHash(tokenHash);
+    if (!refreshToken) {
+      throw new Error('Refresh token não encontrado');
+    }
+
+    // Buscar usuário
+    const user = await this.userRepository.findById(refreshToken.user_id);
+    if (!user) {
+      throw new Error('Usuário não encontrado');
+    }
+
+    // Revogar token antigo
+    await this.refreshTokenRepository.revoke(tokenHash);
+
+    // Gerar novos tokens
+    const tokens = await this.generateTokens(user);
+
+    // TODO: Log de ação (ActionLogService)
+
+    return tokens;
+  }
+
+  /**
+   * Altera senha de usuário autenticado
+   * @param userId ID do usuário
+   * @param dto Dados de alteração
+   */
+  async changePassword(userId: number, dto: ChangePasswordDto): Promise<void> {
+    // Buscar usuário
+    const user = await this.userRepository.findById(userId);
+    if (!user) {
+      throw new Error('Usuário não encontrado');
+    }
+
+    // Verificar senha atual
+    const passwordValid = await bcrypt.compare(dto.currentPassword, user.password);
+    if (!passwordValid) {
+      throw new Error('Senha atual incorreta');
+    }
+
+    // Verificar se nova senha é diferente da atual
+    const samePassword = await bcrypt.compare(dto.newPassword, user.password);
+    if (samePassword) {
+      throw new Error('Nova senha deve ser diferente da senha atual');
+    }
+
+    // Hash da nova senha
+    const hashedPassword = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
+
+    // Atualizar senha
+    await this.userRepository.updatePassword(userId, hashedPassword);
+
+    // Revogar todos os refresh tokens do usuário (força novo login)
+    await this.refreshTokenRepository.revokeAllUserTokens(userId);
+
+    // TODO: Enviar email de confirmação
+    // TODO: Log de ação (ActionLogService)
+  }
+
+  /**
+   * Reset de senha usando recovery code
+   * @param dto Dados de reset
+   */
+  async resetPassword(dto: ResetPasswordDto): Promise<void> {
+    // Buscar usuário
+    const user = await this.userRepository.findByEmail(dto.email);
+    if (!user) {
+      throw new Error('Usuário não encontrado');
+    }
+
+    // Validar recovery code
+    this.validateRecoveryCode(user, dto.recoveryCode);
+
+    // Hash da nova senha
+    const hashedPassword = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
+
+    // Atualizar senha
+    await this.userRepository.updatePassword(user.id, hashedPassword);
+
+    // Gerar novo recovery code
+    const newRecoveryCode = this.generateRecoveryCode();
+    await this.userRepository.updateRecoveryCode(user.id, newRecoveryCode);
+
+    // Revogar todos os refresh tokens do usuário (força novo login)
+    await this.refreshTokenRepository.revokeAllUserTokens(user.id);
+
+    // TODO: Enviar novo recovery code por email
+    // TODO: Enviar email de confirmação de reset
+    // TODO: Log de ação (ActionLogService)
+  }
+
+  /**
+   * Faz logout (revoga refresh token)
+   * @param refreshToken Refresh token a revogar
+   */
+  async logout(refreshToken: string): Promise<void> {
+    const tokenHash = this.hashToken(refreshToken);
+    await this.refreshTokenRepository.revoke(tokenHash);
+
+    // TODO: Log de ação (ActionLogService)
+  }
+
+  /**
+   * Revoga todos os tokens de um usuário
+   * @param userId ID do usuário
+   */
+  async logoutAll(userId: number): Promise<void> {
+    await this.refreshTokenRepository.revokeAllUserTokens(userId);
+
+    // TODO: Log de ação (ActionLogService)
+  }
+
+  // ============= MÉTODOS PRIVADOS =============
+
+  /**
+   * Gera access token e refresh token
+   * @param user Usuário
+   * @returns Tokens
+   */
+  private async generateTokens(user: User): Promise<AuthTokens> {
+    // Gerar access token (JWT - válido por 15 minutos)
+    const accessToken = this.generateAccessToken(user);
+
+    // Gerar refresh token (válido por 7 dias)
+    const refreshToken = this.generateRandomToken();
+    const tokenHash = this.hashToken(refreshToken);
+
+    // Calcular expiração
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_EXPIRY_DAYS);
+
+    // Salvar refresh token no banco
+    await this.refreshTokenRepository.create({
+      user_id: user.id,
+      token_hash: tokenHash,
+      expires_at: expiresAt
+    });
+
+    return {
+      accessToken,
+      refreshToken
+    };
+  }
+
+  /**
+   * Gera access token JWT
+   * @param user Usuário
+   * @returns JWT token
+   */
+  private generateAccessToken(user: User): string {
+    const payload = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role || 'user'
+    };
+
+    const token = jwt.sign(payload, JWT_SECRET, {
+      expiresIn: '15m',
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+      subject: user.id.toString()
+    });
+
+    return token;
+  };
+
+  /**
+   * Gera recovery code no formato XXXX-XXXX-XXXX-XXXX
+   * @returns Recovery code
+   */
+  private generateRecoveryCode(): string {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const segments = [];
+
+    for (let i = 0; i < 4; i++) {
+      let segment = '';
+      for (let j = 0; j < 4; j++) {
+        segment += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      segments.push(segment);
+    }
+
+    return segments.join('-');
+  }
+
+  /**
+   * Gera token aleatório seguro
+   * @returns Token hexadecimal
+   */
+  private generateRandomToken(): string {
+    return crypto.randomBytes(32).toString('hex');
+  }
+
+  /**
+   * Cria hash de um token
+   * @param token Token para hashear
+   * @returns Hash SHA256
+   */
+  private hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  /**
+   * Valida recovery code
+   * @param user Usuário
+   * @param recoveryCode Recovery code fornecido
+   * @throws Error se recovery code inválido ou expirado
+   */
+  private validateRecoveryCode(user: User, recoveryCode: string): void {
+    // Verificar se recovery code está correto
+    if (user.recovery_code !== recoveryCode) {
+      throw new Error('Código de recuperação inválido');
+    }
+
+    // Verificar se recovery code não expirou
+    const createdAt = new Date(user.recovery_code_created_at);
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays > RECOVERY_CODE_EXPIRY_DAYS) {
+      throw new Error('Código de recuperação expirado. Solicite um novo código.');
+    }
+  }
+}
